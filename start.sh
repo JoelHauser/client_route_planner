@@ -1,0 +1,12 @@
+export AIRTABLE_TOKEN="patIIKKkmoxiRF5z1.526f3499cb66616fe42bbfbafa581cde96d2153a7e07431b49f84135a3598b19"
+export AIRTABLE_BASE_ID="appMyfeC34lHkDSsB"
+export AIRTABLE_FIRMS_TABLE="tbljj8mS0HybpvFxx"
+export AIRTABLE_VISITS_TABLE="Sales Visits"
+export AIRTABLE_NAME_FIELD="Name"
+export AIRTABLE_ADDRESS_FIELD="Address"
+export ORS_API_KEY="eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImU3YmE2ZTNmNTNmNTQ0NDE4ZjFlYzk5MmU2OGI5MTc3IiwiaCI6Im11cm11cjY0In0="
+export GOOGLE_CLIENT_ID="674074737478-123f2c8b2krler67mstk8fhp5fd9abke.apps.googleusercontent.com"
+export GOOGLE_CLIENT_SECRET="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"
+export GOOGLE_REDIRECT_URI="http://127.0.0.1:5000/google/callback"
+export FLASK_SECRET_KEY="a6eb8c16fd1e02f6de066ac8e3abd27b55296ac8484865416ce297adcd72cec7"
+python client_route_planner.py
