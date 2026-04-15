@@ -1029,7 +1029,7 @@ def build_firm_visit_index(firms: list[dict], sales_visits: list[dict]):
 def get_google_client_config():
     client_id = os.getenv("GOOGLE_CLIENT_ID")
     client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
-    redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "https://your-railway-domain.up.railway.app/google/callback")
+    redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "crp-production.up.railway.app")
     if not client_id or not client_secret or Flow is None:
         return None
     return {
