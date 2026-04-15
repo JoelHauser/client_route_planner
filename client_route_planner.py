@@ -5,6 +5,12 @@ import time
 from datetime import datetime, timedelta
 from urllib.parse import quote
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'))
+except ImportError:
+    pass
+
 import requests
 
 try:
@@ -30,6 +36,7 @@ APP_HTML = r"""
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Where2Go Scheduling Assistant</title>
+  <script>(function(){var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');})()</script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -52,38 +59,57 @@ APP_HTML = r"""
       --radius-md: 10px;
       --radius-lg: 14px;
     }
+    [data-theme="dark"] {
+      --bg: #0f1117;
+      --panel: #1a1d27;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --line: #2a2d3e;
+      --line-strong: #3a3d52;
+      --accent: #e5e7eb;
+      --soft-bg: #14172a;
+      --success-bg: #052e16;
+      --success-text: #4ade80;
+      --success-border: #166534;
+      --amber-bg: #1c1400;
+      --amber-text: #fbbf24;
+      --amber-border: #92400e;
+    }
+    [data-theme="dark"] .leaflet-tile { filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%); }
+    [data-theme="dark"] button.primary { background: #e5e7eb; color: #111827; }
+    [data-theme="dark"] .stop-n { background: #4b5563; color: #f9fafb; }
     /* ── LAYOUT ── */
     body { font-family: Inter, system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 13px; line-height: 1.5; height: 100vh; overflow: hidden; }
-    .shell { display: grid; grid-template-columns: 320px 1fr; grid-template-rows: 100vh; gap: 10px; padding: 10px; height: 100vh; }
-    .left { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
-    .right { display: grid; grid-template-rows: 1fr 240px; gap: 10px; min-height: 0; }
+    .shell { display: grid; grid-template-columns: 340px 1fr; grid-template-rows: 100vh; gap: 14px; padding: 14px; height: 100vh; }
+    .left { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+    .right { display: grid; grid-template-rows: 1fr 260px; gap: 14px; min-height: 0; }
     /* panels */
     .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); }
-    .controls-panel { flex-shrink: 0; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+    .controls-panel { flex-shrink: 0; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; }
     .calendar-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
     .map-panel { overflow: hidden; }
     #map { width: 100%; height: 100%; }
     .results-panel { display: grid; grid-template-columns: 1fr 1fr; min-height: 0; overflow: hidden; }
     /* controls panel internals */
-    .app-title { display: flex; align-items: baseline; gap: 8px; }
+    .app-title { display: flex; align-items: center; gap: 8px; }
     .app-title h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; }
     .app-title span { font-size: 11px; color: var(--muted); }
-    .ctrl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+    .ctrl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .ctrl-grid .full { grid-column: 1 / -1; }
-    label { font-size: 11px; color: var(--muted); display: block; margin-bottom: 3px; }
+    label { font-size: 11px; color: var(--muted); display: block; margin-bottom: 5px; }
     input[type="text"], input[type="date"], select {
       width: 100%; border: 1px solid var(--line-strong); border-radius: var(--radius-md);
-      padding: 7px 10px; font: inherit; font-size: 12px; background: var(--panel); color: var(--text); outline: none;
+      padding: 9px 12px; font: inherit; font-size: 13px; background: var(--panel); color: var(--text); outline: none;
     }
     input:focus, select:focus { border-color: #6b7280; }
     /* buttons */
-    button { font: inherit; border: 1px solid var(--line-strong); border-radius: var(--radius-md); padding: 7px 10px; cursor: pointer; font-size: 12px; font-weight: 600; background: var(--panel); color: var(--text); transition: background .12s; white-space: nowrap; }
+    button { font: inherit; border: 1px solid var(--line-strong); border-radius: var(--radius-md); padding: 9px 12px; cursor: pointer; font-size: 13px; font-weight: 600; background: var(--panel); color: var(--text); transition: background .12s; white-space: nowrap; }
     button:hover { background: var(--soft-bg); }
     button.primary { background: var(--accent); color: #fff; border-color: transparent; }
     button.primary:hover { opacity: .88; }
     button.ghost { background: var(--soft-bg); border-color: transparent; color: var(--muted); font-weight: 500; }
     button.ghost:hover { background: var(--line); color: var(--text); }
-    .btn-row { display: flex; gap: 6px; }
+    .btn-row { display: flex; gap: 8px; }
     .btn-row > * { flex: 1 1 0; min-width: 0; }
     /* badges */
     .badge { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; padding: 2px 8px; font-size: 11px; font-weight: 600; border: 1px solid var(--line); background: var(--soft-bg); color: var(--muted); white-space: nowrap; }
@@ -91,13 +117,13 @@ APP_HTML = r"""
     .badge.amber { background: var(--amber-bg); color: var(--amber-text); border-color: var(--amber-border); }
     .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; flex-shrink: 0; display: inline-block; }
     /* section header inside panels */
-    .sec-head { padding: 8px 14px; background: var(--soft-bg); border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+    .sec-head { padding: 10px 16px; background: var(--soft-bg); border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
     .sec-label { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
     /* calendar panel */
-    .cal-body { flex: 1; overflow-y: auto; padding: 8px 14px; }
-    .cal-footer { padding: 8px 14px; border-top: 1px solid var(--line); display: flex; gap: 6px; flex-shrink: 0; }
+    .cal-body { flex: 1; overflow-y: auto; padding: 10px 16px; }
+    .cal-footer { padding: 10px 16px; border-top: 1px solid var(--line); display: flex; gap: 8px; flex-shrink: 0; }
     .cal-footer button { flex: 1; }
-    .event-row { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-bottom: 1px solid var(--line); }
+    .event-row { display: flex; gap: 8px; align-items: flex-start; padding: 9px 0; border-bottom: 1px solid var(--line); }
     .event-row:last-of-type { border-bottom: none; }
     .event-time { font-size: 11px; color: var(--muted); min-width: 52px; padding-top: 1px; flex-shrink: 0; }
     .event-title { font-size: 12px; font-weight: 600; }
@@ -105,16 +131,16 @@ APP_HTML = r"""
     /* results panel */
     .res-col { display: flex; flex-direction: column; min-height: 0; overflow: hidden; border-right: 1px solid var(--line); }
     .res-col:last-child { border-right: none; }
-    .res-body { flex: 1; overflow-y: auto; padding: 8px 12px; }
+    .res-body { flex: 1; overflow-y: auto; padding: 10px 14px; }
     /* stops */
-    .stop { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-bottom: 1px solid var(--line); }
+    .stop { display: flex; gap: 8px; align-items: flex-start; padding: 9px 0; border-bottom: 1px solid var(--line); }
     .stop:last-of-type { border-bottom: none; }
     .stop-n { width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px; }
     .stop-name { font-size: 12px; font-weight: 600; }
     .stop-addr { font-size: 11px; color: var(--muted); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .stop-badge { margin-left: auto; flex-shrink: 0; }
     /* route steps */
-    .route-step { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-bottom: 1px solid var(--line); }
+    .route-step { display: flex; gap: 8px; align-items: flex-start; padding: 9px 0; border-bottom: 1px solid var(--line); }
     .route-step:last-child { border-bottom: none; }
     .route-step-n { font-size: 11px; font-weight: 700; color: var(--muted); min-width: 16px; padding-top: 1px; }
     .route-step-name { font-size: 12px; font-weight: 600; }
@@ -123,11 +149,57 @@ APP_HTML = r"""
     .summary-text { white-space: pre-wrap; font-size: 12px; line-height: 1.6; color: var(--text); }
     .no-content { font-size: 12px; color: var(--muted); padding: 4px 0; }
     /* status bar */
-    .status-bar { padding: 7px 16px; border-top: 1px solid var(--line); font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 6px; background: var(--soft-bg); border-radius: 0 0 var(--radius-lg) var(--radius-lg); flex-shrink: 0; }
+    .status-bar { padding: 9px 20px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; background: var(--soft-bg); border-radius: 0 0 var(--radius-lg) var(--radius-lg); flex-shrink: 0; }
     .pulse { width: 6px; height: 6px; border-radius: 50%; background: #d1d5db; flex-shrink: 0; }
     /* res footer */
-    .res-footer { padding: 8px 12px; border-top: 1px solid var(--line); display: flex; gap: 6px; flex-shrink: 0; }
+    .res-footer { padding: 10px 14px; border-top: 1px solid var(--line); display: flex; gap: 8px; flex-shrink: 0; }
     .res-footer button { flex: 1; }
+    /* ── MOBILE ── */
+    @media (max-width: 767px) {
+      body { overflow: hidden; }
+      .shell {
+        display: block; padding: 0; gap: 0;
+        height: calc(100dvh - 58px);
+        overflow: hidden;
+      }
+      .left, .right { display: contents; }
+      .panel {
+        display: none;
+        height: calc(100dvh - 58px);
+        border-radius: 0;
+        border-left: none; border-right: none; border-top: none; border-bottom: none;
+      }
+      .panel.mob-active { display: flex; flex-direction: column; }
+      .map-panel.mob-active { display: block; overflow: hidden; }
+      .controls-panel { overflow-y: auto; }
+      .status-bar { margin: 0 !important; border-radius: 0 !important; }
+      .results-panel.mob-active { display: block; overflow-y: auto; }
+      .res-col { display: block; border-right: none; border-bottom: 1px solid var(--line); }
+      .res-col:last-child { border-bottom: none; }
+      .res-body { overflow-y: visible; height: auto; }
+      .mobile-tabs {
+        position: fixed; bottom: 0; left: 0; right: 0;
+        height: calc(58px + env(safe-area-inset-bottom, 0px));
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+        display: flex;
+        background: var(--panel);
+        border-top: 1px solid var(--line);
+        z-index: 9999;
+      }
+      .mobile-tab {
+        flex: 1; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; gap: 3px;
+        border: none; background: transparent;
+        color: var(--muted); cursor: pointer;
+        font-size: 9px; font-weight: 700;
+        text-transform: uppercase; letter-spacing: 0.05em;
+        padding: 6px 4px; border-radius: 0; white-space: nowrap;
+        transition: color .12s;
+      }
+      .mobile-tab.active { color: var(--text); }
+      .mobile-tab svg { display: block; flex-shrink: 0; }
+    }
+    @media (min-width: 768px) { .mobile-tabs { display: none; } }
   </style>
 </head>
 <body>
@@ -137,18 +209,23 @@ APP_HTML = r"""
   <div class="left">
 
     <!-- Controls panel (fixed height) -->
-    <div class="panel controls-panel">
+    <div id="panel-plan" class="panel controls-panel">
       <div class="app-title">
         <h1>Where2Go</h1>
         <span>Scheduling assistant</span>
-        <a href="/logout" style="margin-left:auto;font-size:11px;color:var(--muted);text-decoration:none;padding:4px 8px;border:1px solid var(--line);border-radius:var(--radius-sm);">Sign out</a>
+        <div style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+          <button id="themeBtn" class="ghost" style="padding:5px 11px;font-size:11px;font-weight:500;">◐ Dark</button>
+          <a href="/logout" style="font-size:11px;color:var(--muted);text-decoration:none;padding:5px 10px;border:1px solid var(--line);border-radius:var(--radius-sm);">Sign out</a>
+        </div>
       </div>
 
       <!-- top action row -->
       <div class="btn-row">
         <button class="primary" id="syncBtn">Sync Airtable</button>
         <button class="ghost" id="fitBtn">Fit map</button>
-        <button class="ghost" id="googleConnectBtn">Connect calendar</button>
+      </div>
+      <div class="btn-row">
+        <button class="ghost" id="googleConnectBtn">Connect Google Calendar</button>
       </div>
       <div style="display:flex;align-items:center;gap:8px;">
         <span class="badge" id="syncBadge">Not synced</span>
@@ -163,7 +240,7 @@ APP_HTML = r"""
           <label for="planDate">Date</label>
           <input id="planDate" type="date" />
         </div>
-        <div>
+        <div class="full">
           <label for="modeSelect">Mode</label>
           <select id="modeSelect">
             <option value="near_meeting">Near existing meeting</option>
@@ -184,17 +261,19 @@ APP_HTML = r"""
       <div class="btn-row">
         <button class="ghost" id="locateBtn">Use my location</button>
         <button class="ghost" id="setManualLocationBtn">Use typed address</button>
+      </div>
+      <div class="btn-row">
         <button class="primary" id="recommendBtn">Build plan</button>
       </div>
 
-      <div class="status-bar" style="margin: -4px -16px -14px; border-radius: 0 0 var(--radius-lg) var(--radius-lg); border-top: 1px solid var(--line);">
+      <div class="status-bar" style="margin: -4px -20px -18px; border-radius: 0 0 var(--radius-lg) var(--radius-lg); border-top: 1px solid var(--line);">
         <span class="pulse" id="statusPulse"></span>
         <span id="statusText">Ready.</span>
       </div>
     </div>
 
     <!-- Calendar panel (scrollable, fills remaining height) -->
-    <div class="panel calendar-panel">
+    <div id="panel-calendar" class="panel calendar-panel">
       <div class="sec-head">
         <span class="sec-label">Calendar</span>
         <span class="badge" id="calEventsBadge">No events</span>
@@ -213,12 +292,12 @@ APP_HTML = r"""
   <div class="right">
 
     <!-- Map (takes most of the height) -->
-    <div class="panel map-panel">
+    <div id="panel-map" class="panel map-panel">
       <div id="map"></div>
     </div>
 
     <!-- Results strip (stops + summary side by side) -->
-    <div class="panel results-panel">
+    <div id="panel-stops" class="panel results-panel">
 
       <!-- Suggested stops -->
       <div class="res-col">
@@ -255,6 +334,25 @@ APP_HTML = r"""
 
 </div>
 
+<nav class="mobile-tabs">
+  <button class="mobile-tab" data-section="plan">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="6" x2="20" y2="6"/><circle cx="8" cy="6" r="2.5" fill="var(--panel)"/><line x1="4" y1="12" x2="20" y2="12"/><circle cx="16" cy="12" r="2.5" fill="var(--panel)"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="10" cy="18" r="2.5" fill="var(--panel)"/></svg>
+    Plan
+  </button>
+  <button class="mobile-tab" data-section="map">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+    Map
+  </button>
+  <button class="mobile-tab" data-section="stops">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
+    Stops
+  </button>
+  <button class="mobile-tab" data-section="calendar">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+    Calendar
+  </button>
+</nav>
+
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script>
   const state = {
@@ -277,12 +375,48 @@ APP_HTML = r"""
       .replace(/"/g,'&quot;').replace(/'/g,'&#039;');
   }
 
+  // ── Mobile tab navigation ──
+  function isMobile() { return window.innerWidth < 768; }
+
+  function switchMobileTab(name) {
+    ['plan', 'map', 'stops', 'calendar'].forEach(s => {
+      document.getElementById('panel-' + s).classList.remove('mob-active');
+    });
+    document.getElementById('panel-' + name).classList.add('mob-active');
+    document.querySelectorAll('.mobile-tab').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.section === name);
+    });
+    if (name === 'map') setTimeout(() => { if (state.map) state.map.invalidateSize(); }, 80);
+  }
+
+  document.querySelectorAll('.mobile-tab').forEach(btn => {
+    btn.addEventListener('click', () => switchMobileTab(btn.dataset.section));
+  });
+
+  async function restoreCache() {
+    try {
+      const res = await fetch('/api/firms-cache');
+      const data = await res.json();
+      if (data.firms && data.firms.length) {
+        state.firms = data.firms;
+        state.visits = data.sales_visits || [];
+        const badge = document.getElementById('syncBadge');
+        badge.className = 'badge green';
+        badge.innerHTML = '<span class="dot"></span> ' + state.firms.length + ' firms';
+        renderMapPins(state.firms);
+        setStatus('Airtable data restored.', true);
+      }
+    } catch (err) {}
+  }
+
   function initialize() {
-    state.map = L.map('map').setView([42.3601, -71.0589], 11);
+    state.map = L.map('map').setView([42.3601, -71.0589], 8);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
     }).addTo(state.map);
     document.getElementById('planDate').value = new Date().toISOString().slice(0, 10);
+    if (isMobile()) switchMobileTab('plan');
+    restoreCache();
     refreshCalendarDay();
   }
 
@@ -410,15 +544,18 @@ APP_HTML = r"""
       const res = await fetch(`/api/calendar/day?date=${encodeURIComponent(date)}`);
       const data = await res.json();
       const badge = document.getElementById('calendarBadge');
+      const btn = document.getElementById('googleConnectBtn');
       if (!res.ok) {
         badge.className = 'badge';
         badge.textContent = 'Calendar not connected';
+        btn.textContent = 'Connect Google Calendar';
         state.calendarEvents = [];
       } else {
         state.calendarEvents = data.events || [];
         if (data.connected) {
           badge.className = 'badge green';
           badge.innerHTML = '<span class="dot"></span> Calendar connected';
+          btn.textContent = 'Reconnect calendar';
         }
       }
       renderCalendarEvents();
@@ -491,6 +628,7 @@ APP_HTML = r"""
       renderSummaryPane();
       renderMapPins(state.firms);
       setStatus('Plan ready.', true);
+      if (isMobile()) switchMobileTab('stops');
     } catch (err) {
       setStatus(err.message || 'Could not build plan.', false);
     }
@@ -521,6 +659,7 @@ APP_HTML = r"""
       renderSummaryPane();
       drawRoute(data.geometry || []);
       setStatus('Route optimized.', true);
+      if (isMobile()) switchMobileTab('map');
     } catch (err) {
       setStatus(err.message || 'Route optimization failed.', false);
     }
@@ -558,18 +697,76 @@ APP_HTML = r"""
   document.getElementById('showSummaryBtn').addEventListener('click', () => { state.view = 'summary'; renderSummaryPane(); });
   document.getElementById('showRouteBtn').addEventListener('click', () => { state.view = 'route'; renderSummaryPane(); });
 
+  // ── Dark mode ──
+  (function() {
+    function applyTheme(dark) {
+      document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+      var btn = document.getElementById('themeBtn');
+      if (btn) btn.textContent = dark ? '☀ Light' : '◐ Dark';
+    }
+    applyTheme(localStorage.getItem('theme') === 'dark');
+    document.getElementById('themeBtn').addEventListener('click', function() {
+      var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+      localStorage.setItem('theme', isDark ? 'light' : 'dark');
+      applyTheme(!isDark);
+    });
+  })();
+
   initialize();
 </script>
 </body>
 </html>
 """
 
-app = Flask(__name__)
-app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-secret-change-me")
-os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
+from werkzeug.security import check_password_hash
 
-AUTH_USERNAME = "Rachel"
-AUTH_PASSWORD_HASH = "bfb521111f46f0f8bfbe6f3ce1ea428a94a4c75c90b3075ca7c8edf2d36f7c4d"
+app = Flask(__name__)
+
+_secret_key = os.getenv("FLASK_SECRET_KEY")
+if not _secret_key:
+    raise RuntimeError("FLASK_SECRET_KEY environment variable must be set before starting the app.")
+app.secret_key = _secret_key
+
+# Allow OAuth over plain HTTP only when explicitly running in development mode.
+# In production this must be unset so the OAuth library enforces HTTPS.
+_dev_mode = os.getenv("FLASK_ENV") == "production"
+if _dev_mode:
+    os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
+
+AUTH_USERNAME = os.getenv("AUTH_USERNAME", "Rachel")
+# To generate a new hash run:
+#   python -c "from werkzeug.security import generate_password_hash; print(generate_password_hash('yourpassword'))"
+# Then set the output as the AUTH_PASSWORD_HASH environment variable.
+AUTH_PASSWORD_HASH = os.getenv("AUTH_PASSWORD_HASH", "")
+
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,       # JS cannot read the session cookie
+    SESSION_COOKIE_SAMESITE="Lax",      # Blocks cross-site request forgery
+    SESSION_COOKIE_SECURE=not _dev_mode, # HTTPS-only in production
+    PERMANENT_SESSION_LIFETIME=timedelta(days=30),
+)
+
+@app.after_request
+def add_security_headers(response):
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "geolocation=(self)"
+    if not _dev_mode:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
+# Simple in-memory brute-force protection: max 10 attempts per IP per 5 minutes
+_login_attempts: dict[str, list[float]] = {}
+
+def _check_login_rate(ip: str) -> bool:
+    now = time.time()
+    window = [t for t in _login_attempts.get(ip, []) if now - t < 300]
+    if len(window) >= 10:
+        return False
+    window.append(now)
+    _login_attempts[ip] = window
+    return True
 
 LOGIN_HTML = """
 <!DOCTYPE html>
@@ -611,9 +808,10 @@ LOGIN_HTML = """
 </html>
 """
 
-def hash_password(password: str) -> str:
-    import hashlib
-    return hashlib.sha256(password.encode()).hexdigest()
+def verify_password(password: str) -> bool:
+    if not AUTH_PASSWORD_HASH:
+        return False
+    return check_password_hash(AUTH_PASSWORD_HASH, password)
 
 def login_required(f):
     from functools import wraps
@@ -1086,9 +1284,12 @@ def login():
 
 @app.post("/login")
 def login_post():
+    ip = request.remote_addr or "unknown"
+    if not _check_login_rate(ip):
+        return render_template_string(LOGIN_HTML, error="Too many attempts. Please wait a few minutes.")
     username = request.form.get("username", "").strip()
     password = request.form.get("password", "")
-    if username == AUTH_USERNAME and hash_password(password) == AUTH_PASSWORD_HASH:
+    if username == AUTH_USERNAME and verify_password(password):
         session["logged_in"] = True
         session.permanent = True
         return redirect(url_for("index"))
@@ -1135,7 +1336,10 @@ def google_callback():
     config = get_google_client_config()
     if not config:
         return redirect(url_for("index"))
-    os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+    if not request.url.startswith("https"):
+        os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+    else:
+        os.environ.pop("OAUTHLIB_INSECURE_TRANSPORT", None)
     flow = Flow.from_client_config(
         config,
         scopes=GOOGLE_SCOPES,
@@ -1149,6 +1353,12 @@ def google_callback():
     creds = flow.credentials
     session["google_token"] = json.loads(creds.to_json())
     return redirect(url_for("index"))
+
+
+@app.get("/api/firms-cache")
+@login_required
+def api_firms_cache():
+    return jsonify(AIRTABLE_CACHE)
 
 
 @app.get("/api/sync-airtable")
@@ -1228,4 +1438,4 @@ def api_optimize_route():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host="127.0.0.1", port=5000)
+    app.run(debug=_dev_mode, host="127.0.0.1", port=5000)

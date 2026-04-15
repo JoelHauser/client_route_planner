@@ -1,0 +1,12 @@
+# Secrets — never commit these
+start.sh
+.env
+
+# Geocode cache contains addresses — keep off version control
+geocode_cache.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/

@@ -693,5 +693,10 @@
     "formatted_address": "15 Walnut Street, Fourth Floor, Wellesley, MA 02481",
     "lat": null,
     "lng": null
+  },
+  "3 walker ln, boxford, ma 01921": {
+    "formatted_address": "3, Walker Lane, Boxford Village Historic District, Boxford, Essex County, Massachusetts, 01921, United States",
+    "lat": 42.6654116,
+    "lng": -70.9897635
   }
 }

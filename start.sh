@@ -9,4 +9,6 @@ export GOOGLE_CLIENT_ID="674074737478-123f2c8b2krler67mstk8fhp5fd9abke.apps.goog
 export GOOGLE_CLIENT_SECRET="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"
 export GOOGLE_REDIRECT_URI="http://127.0.0.1:5000/google/callback"
 export FLASK_SECRET_KEY="a6eb8c16fd1e02f6de066ac8e3abd27b55296ac8484865416ce297adcd72cec7"
+export AUTH_PASSWORD_HASH="scrypt:32768:8:1$Ryx3bH2txnI5mxKr$0736326468209b3d284458ad54484b3930e0435e64cfea84ecee010ccf39de60e6e3fd006bde73b2261fec1c81511df2e13a11acb3c70bada777f7291dd6e253"
+export FLASK_ENV="development"
 python client_route_planner.py
