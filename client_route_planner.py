@@ -1240,7 +1240,11 @@ def build_recommendations(day_str: str, mode: str, neighborhood: str, current_lo
 
 def optimize_route_ors(current_location: dict, stops: list[dict]) -> dict:
     ors_key = require_env("ORS_API_KEY")
-    coords = [[current_location["lng"], current_location["lat"]]] + [[s["lng"], s["lat"]] for s in stops]
+    valid_stops = [s for s in stops if s.get("lat") is not None and s.get("lng") is not None]
+    if not valid_stops:
+        raise ValueError("None of the suggested stops have valid coordinates. Try syncing Airtable again.")
+    coords = [[current_location["lng"], current_location["lat"]]] + [[s["lng"], s["lat"]] for s in valid_stops]
+    stops = valid_stops
     jobs = [{"id": i, "location": coords[i], "service": 0} for i in range(1, len(coords))]
     payload = {"jobs": jobs, "vehicles": [{"id": 1, "profile": "driving-car", "start": coords[0]}], "options": {"g": True}}
     response = requests.post(
