@@ -141,6 +141,7 @@ APP_HTML = r"""
       <div class="app-title">
         <h1>Where2Go</h1>
         <span>Scheduling assistant</span>
+        <a href="/logout" style="margin-left:auto;font-size:11px;color:var(--muted);text-decoration:none;padding:4px 8px;border:1px solid var(--line);border-radius:var(--radius-sm);">Sign out</a>
       </div>
 
       <!-- top action row -->
@@ -566,17 +567,62 @@ APP_HTML = r"""
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-secret-change-me")
 os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
-os.environ.setdefault("AIRTABLE_TOKEN", "patIIKKkmoxiRF5z1.526f3499cb66616fe42bbfbafa581cde96d2153a7e07431b49f84135a3598b19")
-os.environ.setdefault("AIRTABLE_BASE_ID", "appMyfeC34lHkDSsB")
-os.environ.setdefault("AIRTABLE_FIRMS_TABLE", "tbljj8mS0HybpvFxx")
-os.environ.setdefault("AIRTABLE_VISITS_TABLE", "Sales Visits")
-os.environ.setdefault("AIRTABLE_NAME_FIELD", "Name")
-os.environ.setdefault("AIRTABLE_ADDRESS_FIELD", "Address")
-os.environ.setdefault("ORS_API_KEY", "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImU3YmE2ZTNmNTNmNTQ0NDE4ZjFlYzk5MmU2OGI5MTc3IiwiaCI6Im11cm11cjY0In0=")
-os.environ.setdefault("GOOGLE_CLIENT_ID", "674074737478-123f2c8b2krler67mstk8fhp5fd9abke.apps.googleusercontent.com")
-os.environ.setdefault("GOOGLE_CLIENT_SECRET", "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")
-os.environ.setdefault("GOOGLE_REDIRECT_URI", "http://127.0.0.1:5000/google/callback")
-os.environ.setdefault("FLASK_SECRET_KEY", "a6eb8c16fd1e02f6de066ac8e3abd27b55296ac8484865416ce297adcd72cec7")
+
+AUTH_USERNAME = "Rachel"
+AUTH_PASSWORD_HASH = "bfb521111f46f0f8bfbe6f3ce1ea428a94a4c75c90b3075ca7c8edf2d36f7c4d"
+
+LOGIN_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Where2Go — Sign in</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Inter, system-ui, sans-serif; background: #f4f4f5; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 16px; padding: 36px 32px; width: 100%; max-width: 360px; }
+    .logo { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 4px; }
+    .sub { font-size: 13px; color: #6b7280; margin-bottom: 28px; }
+    label { font-size: 12px; color: #6b7280; display: block; margin-bottom: 4px; }
+    input { width: 100%; border: 1px solid #d1d5db; border-radius: 10px; padding: 9px 12px; font: inherit; font-size: 13px; outline: none; margin-bottom: 14px; }
+    input:focus { border-color: #6b7280; }
+    button { width: 100%; background: #111827; color: #fff; border: none; border-radius: 10px; padding: 10px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; margin-top: 4px; }
+    button:hover { opacity: .88; }
+    .error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; border-radius: 10px; padding: 9px 12px; font-size: 13px; margin-bottom: 16px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">Where2Go</div>
+    <div class="sub">Scheduling assistant — sign in to continue</div>
+    {% if error %}
+    <div class="error">{{ error }}</div>
+    {% endif %}
+    <form method="POST" action="/login">
+      <label for="username">Username</label>
+      <input id="username" name="username" type="text" autocomplete="username" required />
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required />
+      <button type="submit">Sign in</button>
+    </form>
+  </div>
+</body>
+</html>
+"""
+
+def hash_password(password: str) -> str:
+    import hashlib
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def login_required(f):
+    from functools import wraps
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get("logged_in"):
+            return redirect(url_for("login"))
+        return f(*args, **kwargs)
+    return decorated
 
 AIRTABLE_CACHE = {"firms": [], "sales_visits": [], "last_sync": None}
 
@@ -1032,12 +1078,35 @@ def optimize_route_ors(current_location: dict, stops: list[dict]) -> dict:
     return {"ordered_stops": ordered_stops, "geometry": geometry, "segments": segments}
 
 
+@app.get("/login")
+def login():
+    if session.get("logged_in"):
+        return redirect(url_for("index"))
+    return render_template_string(LOGIN_HTML, error=None)
+
+@app.post("/login")
+def login_post():
+    username = request.form.get("username", "").strip()
+    password = request.form.get("password", "")
+    if username == AUTH_USERNAME and hash_password(password) == AUTH_PASSWORD_HASH:
+        session["logged_in"] = True
+        session.permanent = True
+        return redirect(url_for("index"))
+    return render_template_string(LOGIN_HTML, error="Incorrect username or password.")
+
+@app.get("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
 @app.get("/")
+@login_required
 def index():
     return render_template_string(APP_HTML)
 
 
 @app.get("/google/login")
+@login_required
 def google_login():
     config = get_google_client_config()
     if not config:
@@ -1061,6 +1130,7 @@ def google_login():
 
 
 @app.get("/google/callback")
+@login_required
 def google_callback():
     config = get_google_client_config()
     if not config:
@@ -1082,6 +1152,7 @@ def google_callback():
 
 
 @app.get("/api/sync-airtable")
+@login_required
 def api_sync_airtable():
     try:
         data = sync_airtable_data()
@@ -1094,6 +1165,7 @@ def api_sync_airtable():
 
 
 @app.get("/api/calendar/day")
+@login_required
 def api_calendar_day():
     try:
         date = request.args.get("date") or datetime.now().strftime("%Y-%m-%d")
@@ -1106,6 +1178,7 @@ def api_calendar_day():
 
 
 @app.post("/api/geocode-address")
+@login_required
 def api_geocode_address():
     try:
         address = (request.get_json(force=True) or {}).get("address", "").strip()
@@ -1123,6 +1196,7 @@ def api_geocode_address():
 
 
 @app.post("/api/recommend-schedule")
+@login_required
 def api_recommend_schedule():
     try:
         payload = request.get_json(force=True) or {}
@@ -1138,6 +1212,7 @@ def api_recommend_schedule():
 
 
 @app.post("/api/optimize-route")
+@login_required
 def api_optimize_route():
     try:
         payload = request.get_json(force=True) or {}
