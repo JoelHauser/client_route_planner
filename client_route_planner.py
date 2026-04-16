@@ -876,6 +876,9 @@ APP_HTML = r"""
   document.getElementById('googleConnectBtn').addEventListener('click', () => { window.location.href = '/google/login'; });
   document.getElementById('calendarRefreshBtn').addEventListener('click', refreshCalendarDay);
   document.getElementById('planDate').addEventListener('change', refreshCalendarDay);
+  document.getElementById('startTimeSelect').addEventListener('change', () => {
+    if (state.suggestedStops.length) buildRecommendations();
+  });
   document.getElementById('setManualLocationBtn').addEventListener('click', setManualStartLocation);
   document.getElementById('locateBtn').addEventListener('click', useCurrentLocation);
   document.getElementById('recommendBtn').addEventListener('click', buildRecommendations);
