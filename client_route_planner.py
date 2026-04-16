@@ -610,6 +610,7 @@ APP_HTML = r"""
     if (isMobile()) switchMobileTab('plan');
     restoreCache();
     refreshCalendarDay();
+    syncAirtable();
   }
 
   function clearMarkers() { state.markers.forEach(m => m.remove()); state.markers = []; }
