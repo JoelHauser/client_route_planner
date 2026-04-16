@@ -25,6 +25,7 @@ except Exception:
     build = None
 
 CACHE_FILE = "geocode_cache.json"
+GOOGLE_TOKEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "google_token.json")
 GEOCODE_DELAY_SECONDS = 1.1
 LAST_GEOCODE_AT = 0.0
 GOOGLE_SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
@@ -80,9 +81,16 @@ APP_HTML = r"""
     [data-theme="dark"] .stop-n { background: #4b5563; color: #f9fafb; }
     /* ── LAYOUT ── */
     body { font-family: Inter, system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 13px; line-height: 1.5; height: 100vh; overflow: hidden; }
-    .shell { display: grid; grid-template-columns: 340px 1fr; grid-template-rows: 100vh; gap: 14px; padding: 14px; height: 100vh; }
+    .shell { display: grid; grid-template-columns: 340px 14px 1fr; grid-template-rows: calc(100vh - 34px); column-gap: 0; row-gap: 0; padding: 14px 14px 20px; height: 100vh; }
     .left { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
-    .right { display: grid; grid-template-rows: 1fr 260px; gap: 14px; min-height: 0; }
+    .right { display: grid; grid-template-rows: 1fr 14px 310px; gap: 0; min-height: 0; }
+    /* resize handles */
+    .h-resizer { display: flex; align-items: center; justify-content: center; cursor: col-resize; z-index: 10; user-select: none; }
+    .h-resizer::after { content: ''; width: 4px; height: 44px; background: var(--line-strong); border-radius: 2px; transition: background .12s, transform .12s; }
+    .h-resizer:hover::after, .h-resizer.dragging::after { background: var(--muted); transform: scaleX(1.5); }
+    .v-resizer { display: flex; align-items: center; justify-content: center; cursor: row-resize; z-index: 10; user-select: none; }
+    .v-resizer::after { content: ''; height: 4px; width: 44px; background: var(--line-strong); border-radius: 2px; transition: background .12s, transform .12s; }
+    .v-resizer:hover::after, .v-resizer.dragging::after { background: var(--muted); transform: scaleY(1.5); }
     /* panels */
     .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); }
     .controls-panel { flex-shrink: 0; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; }
@@ -117,7 +125,7 @@ APP_HTML = r"""
     .badge.amber { background: var(--amber-bg); color: var(--amber-text); border-color: var(--amber-border); }
     .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; flex-shrink: 0; display: inline-block; }
     /* section header inside panels */
-    .sec-head { padding: 10px 16px; background: var(--soft-bg); border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+    .sec-head { padding: 10px 16px; background: var(--soft-bg); border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; min-height: 44px; }
     .sec-label { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
     /* calendar panel */
     .cal-body { flex: 1; overflow-y: auto; padding: 10px 16px; }
@@ -128,6 +136,8 @@ APP_HTML = r"""
     .event-time { font-size: 11px; color: var(--muted); min-width: 52px; padding-top: 1px; flex-shrink: 0; }
     .event-title { font-size: 12px; font-weight: 600; }
     .event-loc { font-size: 11px; color: var(--muted); margin-top: 1px; }
+    .event-loc-link { cursor: pointer; text-decoration: underline dotted; }
+    .event-loc-link:hover { color: var(--text); }
     /* results panel */
     .res-col { display: flex; flex-direction: column; min-height: 0; overflow: hidden; border-right: 1px solid var(--line); }
     .res-col:last-child { border-right: none; }
@@ -139,6 +149,24 @@ APP_HTML = r"""
     .stop-name { font-size: 12px; font-weight: 600; }
     .stop-addr { font-size: 11px; color: var(--muted); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .stop-badge { margin-left: auto; flex-shrink: 0; }
+    /* stop context menu */
+    .stop-menu-btn { padding: 2px 7px; font-size: 15px; line-height: 1; border: none; background: transparent; color: var(--muted); cursor: pointer; border-radius: var(--radius-sm); flex-shrink: 0; margin-left: 4px; }
+    .stop-menu-btn:hover { background: var(--soft-bg); color: var(--text); }
+    .stop-ctx-menu { position: fixed; z-index: 300; background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius-md); box-shadow: 0 4px 20px rgba(0,0,0,.18); min-width: 200px; padding: 4px; display: none; }
+    .stop-ctx-menu.open { display: block; }
+    .stop-ctx-item { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 8px 12px; font-size: 12px; font-weight: 500; border: none; background: none; color: var(--text); cursor: pointer; border-radius: var(--radius-sm); }
+    .stop-ctx-item:hover { background: var(--soft-bg); }
+    .stop-ctx-item.danger { color: #dc2626; }
+    /* add stop panel */
+    .add-stop-panel { border-top: 1px solid var(--line); padding: 10px 14px; display: none; flex-direction: column; gap: 7px; }
+    .add-stop-panel.open { display: flex; }
+    .add-stop-input { padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); font: inherit; font-size: 12px; background: var(--panel); color: var(--text); width: 100%; outline: none; }
+    .add-stop-input:focus { border-color: #6b7280; }
+    .add-stop-list { max-height: 130px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+    .add-stop-item { display: flex; flex-direction: column; padding: 6px 8px; border-radius: var(--radius-sm); cursor: pointer; border: 1px solid transparent; }
+    .add-stop-item:hover { background: var(--soft-bg); border-color: var(--line); }
+    .add-stop-item-name { font-size: 12px; font-weight: 600; }
+    .add-stop-item-addr { font-size: 11px; color: var(--muted); }
     /* route steps */
     .route-step { display: flex; gap: 8px; align-items: flex-start; padding: 9px 0; border-bottom: 1px solid var(--line); }
     .route-step:last-child { border-bottom: none; }
@@ -163,6 +191,7 @@ APP_HTML = r"""
         overflow: hidden;
       }
       .left, .right { display: contents; }
+      .h-resizer, .v-resizer { display: none; }
       .panel {
         display: none;
         height: calc(100dvh - 58px);
@@ -240,6 +269,10 @@ APP_HTML = r"""
           <label for="planDate">Date</label>
           <input id="planDate" type="date" />
         </div>
+        <div>
+          <label for="startTimeSelect">Start time</label>
+          <select id="startTimeSelect"></select>
+        </div>
         <div class="full">
           <label for="modeSelect">Mode</label>
           <select id="modeSelect">
@@ -288,6 +321,8 @@ APP_HTML = r"""
 
   </div>
 
+  <div class="h-resizer" id="hResizer"></div>
+
   <!-- RIGHT COLUMN -->
   <div class="right">
 
@@ -295,6 +330,8 @@ APP_HTML = r"""
     <div id="panel-map" class="panel map-panel">
       <div id="map"></div>
     </div>
+
+    <div class="v-resizer" id="vResizer"></div>
 
     <!-- Results strip (stops + summary side by side) -->
     <div id="panel-stops" class="panel results-panel">
@@ -308,6 +345,21 @@ APP_HTML = r"""
         <div class="res-body" id="stopsBody">
           <div class="no-content">Build a plan to see stops.</div>
         </div>
+        <div id="addStopPanel" class="add-stop-panel">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span class="sec-label" id="addStopPanelTitle">ADD STOP</span>
+            <button class="ghost" onclick="hideAddStopPanel()" style="padding:2px 8px;font-size:11px;">✕ Close</button>
+          </div>
+          <div id="addStopFirmSection" style="display:flex;flex-direction:column;gap:6px;">
+            <input id="addStopSearch" class="add-stop-input" type="text" placeholder="Search firms…">
+            <div id="addStopList" class="add-stop-list"></div>
+          </div>
+          <div id="addStopCustomSection" style="display:none;flex-direction:column;gap:6px;">
+            <input id="customStopName" class="add-stop-input" type="text" placeholder="Stop name…">
+            <input id="customStopAddr" class="add-stop-input" type="text" placeholder="Address…">
+            <button class="primary" id="customStopAddBtn" style="padding:7px;">Add stop</button>
+          </div>
+        </div>
         <div class="res-footer">
           <button class="primary" id="optimizeBtn">Optimize route</button>
           <button class="ghost" id="openMapsBtn">Open in Maps</button>
@@ -315,17 +367,22 @@ APP_HTML = r"""
         </div>
       </div>
 
-      <!-- Day summary / route steps -->
+      <!-- Day summary / route steps / calendar route -->
       <div class="res-col">
         <div class="sec-head">
           <span class="sec-label" id="summaryTabLabel">Day summary</span>
           <div style="display:flex;gap:4px;">
             <button class="ghost" id="showSummaryBtn" style="padding:2px 8px;font-size:10px;">Summary</button>
             <button class="ghost" id="showRouteBtn" style="padding:2px 8px;font-size:10px;">Route</button>
+            <button class="ghost" id="showCalRouteBtn" style="padding:2px 8px;font-size:10px;">Calendar</button>
           </div>
         </div>
         <div class="res-body" id="summaryBody">
           <div class="no-content">No plan yet.</div>
+        </div>
+        <div class="res-footer" id="calRouteFooter" style="display:none;">
+          <button class="primary" id="optimizeCalRouteBtn">Optimize calendar route</button>
+          <button class="ghost" id="openCalMapsBtn">Open in Maps</button>
         </div>
       </div>
 
@@ -353,6 +410,12 @@ APP_HTML = r"""
   </button>
 </nav>
 
+<div id="stopCtxMenu" class="stop-ctx-menu">
+  <button class="stop-ctx-item danger" onclick="ignoreStop(+document.getElementById('stopCtxMenu').dataset.idx)">✕  Remove this stop</button>
+  <button class="stop-ctx-item" onclick="showAddFirmPanel(+document.getElementById('stopCtxMenu').dataset.idx)">＋  Add stop from firms list</button>
+  <button class="stop-ctx-item" onclick="showCreateCustomPanel(+document.getElementById('stopCtxMenu').dataset.idx)">✎  Create custom stop</button>
+</div>
+
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script>
   const state = {
@@ -362,6 +425,8 @@ APP_HTML = r"""
     calendarEvents: [], suggestedStopIds: new Set(),
     optimizedWaypoints: [], summaryText: '',
     view: 'summary',
+    openStopMenu: -1, addStopAfterIdx: -1,
+    calendarEventsFull: [], calendarRouteWaypoints: [], calendarRouteLayer: null,
   };
 
   function setStatus(msg, active) {
@@ -409,15 +474,216 @@ APP_HTML = r"""
     } catch (err) {}
   }
 
+  function populateStartTimes() {
+    const sel = document.getElementById('startTimeSelect');
+    for (let h = 7; h <= 19; h++) {
+      for (let m = 0; m < 60; m += 30) {
+        const suffix = h < 12 ? 'AM' : 'PM';
+        const displayH = h === 0 ? 12 : (h > 12 ? h - 12 : h);
+        const displayM = m === 0 ? '00' : '30';
+        const opt = document.createElement('option');
+        opt.value = h + ':' + displayM;
+        opt.textContent = displayH + ':' + displayM + ' ' + suffix;
+        if (h === 9 && m === 0) opt.selected = true;
+        sel.appendChild(opt);
+      }
+    }
+  }
+
+  function openStopCtxMenu(idx, btnEl) {
+    if (state.openStopMenu === idx) { closeStopCtxMenu(); return; }
+    state.openStopMenu = idx;
+    const menu = document.getElementById('stopCtxMenu');
+    menu.dataset.idx = idx;
+    const rect = btnEl.getBoundingClientRect();
+    menu.style.top = (rect.bottom + 4) + 'px';
+    const right = window.innerWidth - rect.right;
+    menu.style.right = right + 'px';
+    menu.style.left = 'auto';
+    menu.classList.add('open');
+  }
+
+  function closeStopCtxMenu() {
+    state.openStopMenu = -1;
+    document.getElementById('stopCtxMenu').classList.remove('open');
+  }
+
+  function ignoreStop(idx) {
+    closeStopCtxMenu();
+    state.suggestedStops.splice(idx, 1);
+    state.suggestedStopIds = new Set(state.suggestedStops.map(x => x.id));
+    hideAddStopPanel();
+    renderSuggestedStops();
+    renderMapPins(state.firms);
+  }
+
+  function showAddFirmPanel(afterIdx) {
+    closeStopCtxMenu();
+    state.addStopAfterIdx = afterIdx;
+    document.getElementById('addStopPanelTitle').textContent = 'ADD STOP FROM FIRMS';
+    document.getElementById('addStopFirmSection').style.display = 'flex';
+    document.getElementById('addStopCustomSection').style.display = 'none';
+    document.getElementById('addStopSearch').value = '';
+    document.getElementById('addStopPanel').classList.add('open');
+    renderAddStopList('');
+    setTimeout(() => document.getElementById('addStopSearch').focus(), 50);
+  }
+
+  function showCreateCustomPanel(afterIdx) {
+    closeStopCtxMenu();
+    state.addStopAfterIdx = afterIdx;
+    document.getElementById('addStopPanelTitle').textContent = 'CREATE CUSTOM STOP';
+    document.getElementById('addStopFirmSection').style.display = 'none';
+    document.getElementById('addStopCustomSection').style.display = 'flex';
+    document.getElementById('customStopName').value = '';
+    document.getElementById('customStopAddr').value = '';
+    document.getElementById('addStopPanel').classList.add('open');
+    setTimeout(() => document.getElementById('customStopName').focus(), 50);
+  }
+
+  function hideAddStopPanel() {
+    document.getElementById('addStopPanel').classList.remove('open');
+    state.addStopAfterIdx = -1;
+  }
+
+  function renderAddStopList(query) {
+    const list = document.getElementById('addStopList');
+    const existing = new Set(state.suggestedStops.map(s => s.id).filter(Boolean));
+    const q = query.toLowerCase();
+    const candidates = state.firms.filter(f =>
+      !existing.has(f.id) &&
+      (!q || (f.name || '').toLowerCase().includes(q) || (f.address || '').toLowerCase().includes(q))
+    ).slice(0, 25);
+    if (!candidates.length) {
+      list.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:6px 0;">No firms found.</div>';
+      return;
+    }
+    list.innerHTML = candidates.map(f => `
+      <div class="add-stop-item" data-firm-id="${esc(f.id)}">
+        <div class="add-stop-item-name">${esc(f.name)}</div>
+        <div class="add-stop-item-addr">${esc(f.address || '')}</div>
+      </div>
+    `).join('');
+    list.querySelectorAll('.add-stop-item').forEach(el => {
+      el.addEventListener('click', () => {
+        const firm = state.firms.find(f => f.id === el.dataset.firmId);
+        if (firm) insertStop(Object.assign({}, firm, { reason: 'Added manually' }), state.addStopAfterIdx);
+      });
+    });
+  }
+
+  function insertStop(firm, afterIdx) {
+    if (afterIdx < 0 || afterIdx >= state.suggestedStops.length) {
+      state.suggestedStops.push(firm);
+    } else {
+      state.suggestedStops.splice(afterIdx + 1, 0, firm);
+    }
+    state.suggestedStopIds = new Set(state.suggestedStops.map(x => x.id).filter(Boolean));
+    hideAddStopPanel();
+    renderSuggestedStops();
+    renderMapPins(state.firms);
+  }
+
+  async function addCustomStop() {
+    const name = document.getElementById('customStopName').value.trim();
+    const address = document.getElementById('customStopAddr').value.trim();
+    if (!name || !address) { setStatus('Enter a name and address.', false); return; }
+    setStatus('Geocoding address…', true);
+    try {
+      const res = await fetch('/api/geocode-address', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ address })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not geocode address.');
+      const firm = {
+        id: 'custom_' + Date.now(), name,
+        address: data.formatted_address || address,
+        lat: data.lat || null, lng: data.lng || null,
+        reason: 'Custom stop', visited_this_quarter: false,
+      };
+      insertStop(firm, state.addStopAfterIdx);
+      setStatus('Stop added.', true);
+    } catch (err) {
+      setStatus(err.message || 'Could not add stop.', false);
+    }
+  }
+
+  document.addEventListener('click', function(e) {
+    if (!e.target.closest('#stopCtxMenu') && !e.target.closest('.stop-menu-btn') && state.openStopMenu >= 0) {
+      closeStopCtxMenu();
+    }
+  });
+
+  function initResizers() {
+    const shell = document.querySelector('.shell');
+    const rightPanel = document.querySelector('.right');
+
+    // ── Horizontal (left ↔ right) ──
+    const hResizer = document.getElementById('hResizer');
+    hResizer.addEventListener('mousedown', function(e) {
+      e.preventDefault();
+      hResizer.classList.add('dragging');
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      const onMove = function(e) {
+        const rect = shell.getBoundingClientRect();
+        let w = e.clientX - rect.left - 14;
+        w = Math.max(220, Math.min(540, w));
+        shell.style.gridTemplateColumns = w + 'px 14px 1fr';
+        if (state.map) state.map.invalidateSize();
+      };
+      const onUp = function() {
+        hResizer.classList.remove('dragging');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        if (state.map) state.map.invalidateSize();
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+
+    // ── Vertical (map ↕ results) ──
+    const vResizer = document.getElementById('vResizer');
+    vResizer.addEventListener('mousedown', function(e) {
+      e.preventDefault();
+      vResizer.classList.add('dragging');
+      document.body.style.cursor = 'row-resize';
+      document.body.style.userSelect = 'none';
+      const onMove = function(e) {
+        const rect = rightPanel.getBoundingClientRect();
+        let h = rect.bottom - e.clientY;
+        h = Math.max(100, Math.min(rect.height - 120, h));
+        rightPanel.style.gridTemplateRows = '1fr 14px ' + h + 'px';
+        if (state.map) state.map.invalidateSize();
+      };
+      const onUp = function() {
+        vResizer.classList.remove('dragging');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        if (state.map) state.map.invalidateSize();
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+
   function initialize() {
-    state.map = L.map('map').setView([42.3601, -71.0589], 8);
+    state.map = L.map('map', { scrollWheelZoom: true, wheelDebounceTime: 60, wheelPxPerZoomLevel: 80 }).setView([42.3601, -71.0589], 8);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
     }).addTo(state.map);
     document.getElementById('planDate').value = new Date().toISOString().slice(0, 10);
+    populateStartTimes();
+    initResizers();
     if (isMobile()) switchMobileTab('plan');
     restoreCache();
     refreshCalendarDay();
+    syncAirtable();
   }
 
   function clearMarkers() { state.markers.forEach(m => m.remove()); state.markers = []; }
@@ -447,7 +713,7 @@ APP_HTML = r"""
     const badge = document.getElementById('stopsBadge');
     badge.textContent = state.suggestedStops.length;
     if (!state.suggestedStops.length) {
-      body.innerHTML = '<div class="no-content">No stops suggested yet.</div>';
+      body.innerHTML = '<div class="no-content" style="display:flex;justify-content:space-between;align-items:center;">No stops yet.<button class="ghost" onclick="showAddFirmPanel(-1)" style="padding:4px 8px;font-size:11px;margin-left:8px;">+ Add stop</button></div>';
       return;
     }
     body.innerHTML = state.suggestedStops.map((firm, i) => `
@@ -458,6 +724,7 @@ APP_HTML = r"""
           <div class="stop-addr">${esc(firm.address || '')}</div>
         </div>
         ${firm.reason ? `<span class="badge stop-badge ${firm.visited_this_quarter ? '' : 'amber'}" style="font-size:10px;">${esc(firm.reason)}</span>` : ''}
+        <button class="stop-menu-btn" title="Options" onclick="event.stopPropagation();openStopCtxMenu(${i},this)">•••</button>
       </div>
     `).join('');
     body.querySelectorAll('.stop').forEach((el, i) => {
@@ -484,7 +751,7 @@ APP_HTML = r"""
         <div class="event-time">${esc(ev.start_time || '')}</div>
         <div>
           <div class="event-title">${esc(ev.summary || 'Untitled')}</div>
-          ${ev.location ? `<div class="event-loc">${esc(ev.location)}</div>` : ''}
+          ${ev.location ? `<div class="event-loc event-loc-link" data-address="${ev.location.replace(/"/g,'&quot;')}" title="Use as start location">${esc(ev.location)} ↗</div>` : ''}
         </div>
       </div>
     `).join('');
@@ -493,6 +760,34 @@ APP_HTML = r"""
   function renderSummaryPane() {
     const body = document.getElementById('summaryBody');
     const label = document.getElementById('summaryTabLabel');
+    const calFooter = document.getElementById('calRouteFooter');
+    calFooter.style.display = 'none';
+
+    if (state.view === 'calroute') {
+      label.textContent = 'Calendar route';
+      const events = state.calendarRouteWaypoints.length
+        ? state.calendarRouteWaypoints
+        : state.calendarEventsFull.filter(e => e.location);
+      if (!events.length) {
+        body.innerHTML = '<div class="no-content">No calendar events with locations. Build a plan with Calendar connected.</div>';
+        return;
+      }
+      const startHtml = `<div class="route-step"><div class="route-step-n">S</div><div><div class="route-step-name">Start</div><div class="route-step-meta">Your chosen location</div></div></div>`;
+      const stepsHtml = events.map((ev, idx) => {
+        const seg = (state.calendarRouteSegments || [])[idx] || {};
+        return `<div class="route-step">
+          <div class="route-step-n">${idx + 1}</div>
+          <div style="flex:1;min-width:0;">
+            <div class="route-step-name">${esc(ev.summary || ev.name || 'Event')}</div>
+            <div class="route-step-meta">${esc(ev.start_time || '')}${ev.location ? ' · ' + esc(ev.location) : ''}${seg.distance_text ? ' · ' + esc(seg.distance_text) : ''}${seg.duration_text ? ' · ' + esc(seg.duration_text) : ''}</div>
+          </div>
+        </div>`;
+      }).join('');
+      body.innerHTML = startHtml + stepsHtml;
+      calFooter.style.display = 'flex';
+      return;
+    }
+
     if (state.view === 'summary') {
       label.textContent = 'Day summary';
       body.innerHTML = state.summaryText
@@ -564,6 +859,36 @@ APP_HTML = r"""
     }
   }
 
+  async function setLocationFromCalendarEvent(address) {
+    if (!address) return;
+    setStatus('Setting location from calendar event…', true);
+    try {
+      const res = await fetch('/api/geocode-address', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ address })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not geocode address.');
+      state.currentLocation = { lat: data.lat, lng: data.lng };
+      if (state.currentLocationMarker) state.currentLocationMarker.remove();
+      state.currentLocationMarker = L.circleMarker([data.lat, data.lng], {
+        radius: 8, fillColor: '#111827', color: '#fff', weight: 2, fillOpacity: 1
+      }).bindPopup(`Start: ${esc(data.formatted_address)}`).addTo(state.map);
+      document.getElementById('manualStartInput').value = data.formatted_address || address;
+      state.map.setView([data.lat, data.lng], 13);
+      renderMapPins(state.firms);
+      setStatus('Start location set from calendar.', true);
+      buildRecommendations();
+    } catch (err) {
+      setStatus(err.message || 'Could not set location.', false);
+    }
+  }
+
+  document.getElementById('calendarEvents').addEventListener('click', function(e) {
+    const loc = e.target.closest('.event-loc-link');
+    if (loc) setLocationFromCalendarEvent(loc.dataset.address);
+  });
+
   async function setManualStartLocation() {
     const address = document.getElementById('manualStartInput').value.trim();
     if (!address) return setStatus('Type a start address first.', false);
@@ -583,6 +908,7 @@ APP_HTML = r"""
       state.map.setView([data.lat, data.lng], 13);
       renderMapPins(state.firms);
       setStatus('Start location set.', true);
+      buildRecommendations();
     } catch (err) {
       setStatus(err.message || 'Could not set location.', false);
     }
@@ -601,6 +927,7 @@ APP_HTML = r"""
       state.map.setView([state.currentLocation.lat, state.currentLocation.lng], 13);
       renderMapPins(state.firms);
       setStatus('Location captured.', true);
+      buildRecommendations();
     }, err => setStatus(`Location error: ${err.message}`, false),
     { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
   }
@@ -613,6 +940,7 @@ APP_HTML = r"""
         mode: document.getElementById('modeSelect').value,
         neighborhood: document.getElementById('neighborhoodFilter').value.trim(),
         current_location: state.currentLocation,
+        start_time: document.getElementById('startTimeSelect').value,
       };
       const res = await fetch('/api/recommend-schedule', {
         method: 'POST', headers: {'Content-Type':'application/json'},
@@ -623,7 +951,11 @@ APP_HTML = r"""
       state.suggestedStops = data.suggested_stops || [];
       state.suggestedStopIds = new Set(state.suggestedStops.map(x => x.id));
       state.summaryText = data.summary_text || '';
-      state.view = 'summary';
+      state.calendarEventsFull = (data.calendar_events || []).filter(e => e.location);
+      state.calendarRouteWaypoints = [];
+      state.calendarRouteSegments = [];
+      if (state.calendarRouteLayer) { state.calendarRouteLayer.remove(); state.calendarRouteLayer = null; }
+      if (state.view === 'calroute') state.view = 'summary';
       renderSuggestedStops();
       renderSummaryPane();
       renderMapPins(state.firms);
@@ -636,10 +968,63 @@ APP_HTML = r"""
 
   function clearRoute() {
     if (state.routeLayer) { state.routeLayer.remove(); state.routeLayer = null; }
+    if (state.calendarRouteLayer) { state.calendarRouteLayer.remove(); state.calendarRouteLayer = null; }
     state.optimizedWaypoints = [];
     state.lastSegments = [];
+    state.calendarRouteWaypoints = [];
+    state.calendarRouteSegments = [];
     renderSummaryPane();
     setStatus('Route cleared.', false);
+  }
+
+  async function optimizeCalendarRoute() {
+    if (!state.currentLocation) return setStatus('Set a start location first.', false);
+    const stops = state.calendarEventsFull.filter(e => e.lat != null && e.lng != null)
+      .map(e => ({ name: e.summary || 'Event', address: e.location || '', lat: e.lat, lng: e.lng, start_time: e.start_time }));
+    if (!stops.length) return setStatus('No calendar events with geocoded locations to optimize.', false);
+    setStatus('Optimizing calendar route…', true);
+    try {
+      const res = await fetch('/api/optimize-route', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ current_location: state.currentLocation, stops })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Route optimization failed.');
+      state.calendarRouteWaypoints = (data.ordered_stops || []).map((stop, i) => {
+        const orig = stops.find(s => s.lat === stop.lat && s.lng === stop.lng) || stop;
+        return Object.assign({}, orig, stop);
+      });
+      state.calendarRouteSegments = data.segments || [];
+      drawCalendarRoute(data.geometry || []);
+      renderSummaryPane();
+      setStatus('Calendar route optimized.', true);
+      if (isMobile()) switchMobileTab('map');
+    } catch (err) {
+      setStatus(err.message || 'Route optimization failed.', false);
+    }
+  }
+
+  function drawCalendarRoute(coords) {
+    if (state.calendarRouteLayer) state.calendarRouteLayer.remove();
+    if (!coords.length) return;
+    const isDarkCal = document.documentElement.getAttribute('data-theme') === 'dark';
+    state.calendarRouteLayer = L.polyline(coords.map(c => [c[1], c[0]]), {
+      weight: 5, color: isDarkCal ? '#38bdf8' : '#2563eb', dashArray: '8 5'
+    }).addTo(state.map);
+    state.map.fitBounds(state.calendarRouteLayer.getBounds(), { padding: [50, 50] });
+  }
+
+  function openCalendarInMaps() {
+    const stops = state.calendarRouteWaypoints.length
+      ? state.calendarRouteWaypoints
+      : state.calendarEventsFull.filter(e => e.location);
+    if (!state.currentLocation || !stops.length) return setStatus('Need a start location and calendar events with locations.', false);
+    const origin = `${state.currentLocation.lat},${state.currentLocation.lng}`;
+    const destination = encodeURIComponent(stops[stops.length - 1].location || stops[stops.length - 1].address || '');
+    const waypoints = stops.slice(0, -1).map(s => s.location || s.address || '').filter(Boolean).join('|');
+    let url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${destination}&travelmode=driving`;
+    if (waypoints) url += `&waypoints=${encodeURIComponent(waypoints)}`;
+    window.open(url, '_blank');
   }
 
   async function optimizeSuggestedStops() {
@@ -668,7 +1053,8 @@ APP_HTML = r"""
   function drawRoute(coords) {
     if (state.routeLayer) state.routeLayer.remove();
     if (!coords.length) return;
-    state.routeLayer = L.polyline(coords.map(c => [c[1], c[0]]), { weight: 5, color: '#111827' }).addTo(state.map);
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    state.routeLayer = L.polyline(coords.map(c => [c[1], c[0]]), { weight: 5, color: isDark ? '#f97316' : '#111827' }).addTo(state.map);
     state.map.fitBounds(state.routeLayer.getBounds(), { padding: [50, 50] });
   }
 
@@ -688,7 +1074,11 @@ APP_HTML = r"""
   document.getElementById('googleConnectBtn').addEventListener('click', () => { window.location.href = '/google/login'; });
   document.getElementById('calendarRefreshBtn').addEventListener('click', refreshCalendarDay);
   document.getElementById('planDate').addEventListener('change', refreshCalendarDay);
+  document.getElementById('startTimeSelect').addEventListener('change', () => {
+    if (state.suggestedStops.length) buildRecommendations();
+  });
   document.getElementById('setManualLocationBtn').addEventListener('click', setManualStartLocation);
+  document.getElementById('manualStartInput').addEventListener('keydown', function(e) { if (e.key === 'Enter') setManualStartLocation(); });
   document.getElementById('locateBtn').addEventListener('click', useCurrentLocation);
   document.getElementById('recommendBtn').addEventListener('click', buildRecommendations);
   document.getElementById('clearRouteBtn').addEventListener('click', clearRoute);
@@ -696,6 +1086,12 @@ APP_HTML = r"""
   document.getElementById('openMapsBtn').addEventListener('click', openInGoogleMaps);
   document.getElementById('showSummaryBtn').addEventListener('click', () => { state.view = 'summary'; renderSummaryPane(); });
   document.getElementById('showRouteBtn').addEventListener('click', () => { state.view = 'route'; renderSummaryPane(); });
+  document.getElementById('showCalRouteBtn').addEventListener('click', () => { state.view = 'calroute'; renderSummaryPane(); });
+  document.getElementById('optimizeCalRouteBtn').addEventListener('click', optimizeCalendarRoute);
+  document.getElementById('openCalMapsBtn').addEventListener('click', openCalendarInMaps);
+  document.getElementById('addStopSearch').addEventListener('input', function() { renderAddStopList(this.value); });
+  document.getElementById('customStopAddBtn').addEventListener('click', addCustomStop);
+  document.getElementById('customStopAddr').addEventListener('keydown', function(e) { if (e.key === 'Enter') addCustomStop(); });
 
   // ── Dark mode ──
   (function() {
@@ -729,7 +1125,7 @@ app.secret_key = _secret_key
 
 # Allow OAuth over plain HTTP only when explicitly running in development mode.
 # In production this must be unset so the OAuth library enforces HTTPS.
-_dev_mode = os.getenv("FLASK_ENV") == "production"
+_dev_mode = os.getenv("FLASK_ENV") == "development"
 if _dev_mode:
     os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
 
@@ -1045,14 +1441,36 @@ def get_google_client_config():
     }
 
 
+def _save_google_token(token_data: dict) -> None:
+    try:
+        with open(GOOGLE_TOKEN_FILE, "w", encoding="utf-8") as f:
+            json.dump(token_data, f)
+    except Exception:
+        pass
+
+
+def _load_google_token() -> dict | None:
+    try:
+        if os.path.exists(GOOGLE_TOKEN_FILE):
+            with open(GOOGLE_TOKEN_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return None
+
+
 def get_google_credentials():
-    token = session.get("google_token")
+    token = session.get("google_token") or _load_google_token()
     if not token or Credentials is None:
         return None
+    if not session.get("google_token"):
+        session["google_token"] = token
     creds = Credentials.from_authorized_user_info(token, GOOGLE_SCOPES)
     if creds.expired and creds.refresh_token:
         creds.refresh(GoogleRequest())
-        session["google_token"] = json.loads(creds.to_json())
+        token_data = json.loads(creds.to_json())
+        session["google_token"] = token_data
+        _save_google_token(token_data)
     return creds
 
 
@@ -1141,32 +1559,69 @@ def score_frequency_gap(firm):
     return (datetime.now() - last_visit).days
 
 
-def make_summary_text(day_str, mode, nearby_event, chosen, outreach):
+def _proximity_minutes(firm: dict, current_location: dict | None) -> float:
+    """Driving-time proxy (minutes) from start location to firm. 9999 if unknown."""
+    if not current_location or firm.get("lat") is None or firm.get("lng") is None:
+        return 9999
+    return haversine_minutes(
+        current_location.get("lat"), current_location.get("lng"),
+        firm["lat"], firm["lng"],
+    )
+
+
+def _parse_start_time(start_time_str: str | None) -> tuple[int, int]:
+    """Parse '9:00' or '13:30' into (hour, minute). Defaults to 9:00."""
+    if not start_time_str:
+        return 9, 0
+    try:
+        h, m = map(int, start_time_str.split(":"))
+        return h, m
+    except Exception:
+        return 9, 0
+
+
+def _event_after_start(event: dict, start_h: int, start_m: int) -> bool:
+    """Return True if the event starts at or after (start_h, start_m)."""
+    raw = (event.get("start_raw") or "").strip()
+    if not raw or "T" not in raw:
+        return True  # all-day events — always keep
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        return (dt.hour * 60 + dt.minute) >= (start_h * 60 + start_m)
+    except Exception:
+        return True
+
+
+def make_summary_text(day_str, mode, nearby_event, chosen, start_time=None):
     dt = datetime.strptime(day_str, "%Y-%m-%d")
     header = dt.strftime("%A, %B %d")
     lines = [header]
+    start_h, start_m = _parse_start_time(start_time)
+    suffix_label = "AM" if start_h < 12 else "PM"
+    display_start_h = start_h if start_h <= 12 else start_h - 12
+    if display_start_h == 0:
+        display_start_h = 12
+    lines.append(f"Starting at {display_start_h}:{start_m:02d} {suffix_label}")
     if nearby_event:
         lines.append(f"Already in {nearby_event.get('location') or 'that area'} at {nearby_event.get('start_time')}")
     if chosen:
         lines.append("Add:")
-        base_hour = 12
         for idx, firm in enumerate(chosen):
+            total_min = start_h * 60 + start_m + idx * 45
+            h = total_min // 60
+            m = total_min % 60
+            s = "AM" if h < 12 else "PM"
+            dh = h if h <= 12 else h - 12
+            if dh == 0:
+                dh = 12
             if firm.get("quick_hello"):
-                lines.append(f"- stop by {firm['name']} for a quick hello")
+                lines.append(f"- stop by {firm['name']} around {dh}:{m:02d} {s}")
             else:
-                hour = base_hour + idx
-                suffix = "PM" if hour >= 12 else "AM"
-                normalized = hour if hour <= 12 else hour - 12
-                lines.append(f"- {firm['name']} at {normalized}:30 {suffix}")
-    if outreach:
-        lines.append("")
-        lines.append("Reach out today to:")
-        for item in outreach:
-            lines.append(f"- {item['contact']} at {item['firm']}")
+                lines.append(f"- {firm['name']} at {dh}:{m:02d} {s}")
     return "\n".join(lines)
 
 
-def build_recommendations(day_str: str, mode: str, neighborhood: str, current_location: dict | None):
+def build_recommendations(day_str: str, mode: str, neighborhood: str, current_location: dict | None, start_time: str | None = None):
     firms = AIRTABLE_CACHE.get("firms") or []
     sales_visits = AIRTABLE_CACHE.get("sales_visits") or []
     if not firms:
@@ -1175,9 +1630,11 @@ def build_recommendations(day_str: str, mode: str, neighborhood: str, current_lo
     candidates = choose_candidate_firms(firms, visit_index, neighborhood)
     connected, events = get_calendar_events_for_day(day_str)
     events = enrich_calendar_locations(events) if connected else []
+    if start_time:
+        sh, sm = _parse_start_time(start_time)
+        events = [e for e in events if _event_after_start(e, sh, sm)]
 
     chosen = []
-    outreach = []
     nearby_event = events[0] if events else None
 
     if mode == "near_meeting":
@@ -1204,33 +1661,32 @@ def build_recommendations(day_str: str, mode: str, neighborhood: str, current_lo
             if not firm.get("visited_this_quarter"):
                 firm = dict(firm)
                 firm["reason"] = "Not seen this quarter"
-                ranked.append((score_frequency_gap(firm) * -1, firm.get("neighborhood") or "", firm))
-        ranked.sort(key=lambda x: (x[0], x[1]))
-        chosen = [item[2] for item in ranked[:4]]
+                prox = _proximity_minutes(firm, current_location)
+                ranked.append((score_frequency_gap(firm) * -1, prox, firm.get("neighborhood") or "", firm))
+        ranked.sort(key=lambda x: (x[0], x[1], x[2]))
+        chosen = [item[3] for item in ranked[:4]]
     elif mode == "frequency_protection":
         ranked = []
         for firm in candidates:
             gap = score_frequency_gap(firm)
             firm = dict(firm)
             firm["reason"] = "Falling behind"
-            ranked.append((-gap, 0 if not firm.get("visited_this_quarter") else 1, firm))
-        ranked.sort(key=lambda x: (x[0], x[1]))
-        chosen = [item[2] for item in ranked[:4]]
+            prox = _proximity_minutes(firm, current_location)
+            ranked.append((-gap, prox, 0 if not firm.get("visited_this_quarter") else 1, firm))
+        ranked.sort(key=lambda x: (x[0], x[1], x[2]))
+        chosen = [item[3] for item in ranked[:4]]
     elif mode == "outreach_first":
         ranked = []
         for firm in candidates:
             if not firm.get("visited_this_quarter"):
                 firm = dict(firm)
                 firm["reason"] = "Good target"
-                ranked.append((firm.get("neighborhood") or "", -score_frequency_gap(firm), firm))
-        ranked.sort(key=lambda x: (x[0], x[1]))
-        chosen = [item[2] for item in ranked[:4]]
+                prox = _proximity_minutes(firm, current_location)
+                ranked.append((prox, firm.get("neighborhood") or "", -score_frequency_gap(firm), firm))
+        ranked.sort(key=lambda x: (x[0], x[1], x[2]))
+        chosen = [item[3] for item in ranked[:4]]
 
-    for firm in chosen[:2]:
-        if firm.get("primary_contact"):
-            outreach.append({"contact": firm["primary_contact"], "firm": firm["name"]})
-
-    summary_text = make_summary_text(day_str, mode, nearby_event, chosen, outreach)
+    summary_text = make_summary_text(day_str, mode, nearby_event, chosen, start_time=start_time)
     return {
         "summary_text": summary_text,
         "suggested_stops": chosen,
@@ -1355,7 +1811,9 @@ def google_callback():
         code_verifier=session.get("google_code_verifier"),
     )
     creds = flow.credentials
-    session["google_token"] = json.loads(creds.to_json())
+    token_data = json.loads(creds.to_json())
+    session["google_token"] = token_data
+    _save_google_token(token_data)
     return redirect(url_for("index"))
 
 
@@ -1419,6 +1877,7 @@ def api_recommend_schedule():
             mode=payload.get("mode") or "near_meeting",
             neighborhood=payload.get("neighborhood") or "",
             current_location=payload.get("current_location"),
+            start_time=payload.get("start_time"),
         )
         return jsonify(result)
     except Exception as exc:
