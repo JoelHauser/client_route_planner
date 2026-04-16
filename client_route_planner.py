@@ -804,6 +804,7 @@ APP_HTML = r"""
       state.map.setView([data.lat, data.lng], 13);
       renderMapPins(state.firms);
       setStatus('Start location set.', true);
+      buildRecommendations();
     } catch (err) {
       setStatus(err.message || 'Could not set location.', false);
     }
@@ -822,6 +823,7 @@ APP_HTML = r"""
       state.map.setView([state.currentLocation.lat, state.currentLocation.lng], 13);
       renderMapPins(state.firms);
       setStatus('Location captured.', true);
+      buildRecommendations();
     }, err => setStatus(`Location error: ${err.message}`, false),
     { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
   }
