@@ -81,9 +81,16 @@ APP_HTML = r"""
     [data-theme="dark"] .stop-n { background: #4b5563; color: #f9fafb; }
     /* ── LAYOUT ── */
     body { font-family: Inter, system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 13px; line-height: 1.5; height: 100vh; overflow: hidden; }
-    .shell { display: grid; grid-template-columns: 340px 1fr; grid-template-rows: calc(100vh - 34px); gap: 14px; padding: 14px 14px 20px; height: 100vh; }
+    .shell { display: grid; grid-template-columns: 340px 14px 1fr; grid-template-rows: calc(100vh - 34px); column-gap: 0; row-gap: 0; padding: 14px 14px 20px; height: 100vh; }
     .left { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
-    .right { display: grid; grid-template-rows: 1fr 310px; gap: 14px; min-height: 0; }
+    .right { display: grid; grid-template-rows: 1fr 14px 310px; gap: 0; min-height: 0; }
+    /* resize handles */
+    .h-resizer { display: flex; align-items: center; justify-content: center; cursor: col-resize; z-index: 10; user-select: none; }
+    .h-resizer::after { content: ''; width: 4px; height: 44px; background: var(--line-strong); border-radius: 2px; transition: background .12s, transform .12s; }
+    .h-resizer:hover::after, .h-resizer.dragging::after { background: var(--muted); transform: scaleX(1.5); }
+    .v-resizer { display: flex; align-items: center; justify-content: center; cursor: row-resize; z-index: 10; user-select: none; }
+    .v-resizer::after { content: ''; height: 4px; width: 44px; background: var(--line-strong); border-radius: 2px; transition: background .12s, transform .12s; }
+    .v-resizer:hover::after, .v-resizer.dragging::after { background: var(--muted); transform: scaleY(1.5); }
     /* panels */
     .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); }
     .controls-panel { flex-shrink: 0; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; }
@@ -184,6 +191,7 @@ APP_HTML = r"""
         overflow: hidden;
       }
       .left, .right { display: contents; }
+      .h-resizer, .v-resizer { display: none; }
       .panel {
         display: none;
         height: calc(100dvh - 58px);
@@ -313,6 +321,8 @@ APP_HTML = r"""
 
   </div>
 
+  <div class="h-resizer" id="hResizer"></div>
+
   <!-- RIGHT COLUMN -->
   <div class="right">
 
@@ -320,6 +330,8 @@ APP_HTML = r"""
     <div id="panel-map" class="panel map-panel">
       <div id="map"></div>
     </div>
+
+    <div class="v-resizer" id="vResizer"></div>
 
     <!-- Results strip (stops + summary side by side) -->
     <div id="panel-stops" class="panel results-panel">
@@ -603,6 +615,63 @@ APP_HTML = r"""
     }
   });
 
+  function initResizers() {
+    const shell = document.querySelector('.shell');
+    const rightPanel = document.querySelector('.right');
+
+    // ── Horizontal (left ↔ right) ──
+    const hResizer = document.getElementById('hResizer');
+    hResizer.addEventListener('mousedown', function(e) {
+      e.preventDefault();
+      hResizer.classList.add('dragging');
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      const onMove = function(e) {
+        const rect = shell.getBoundingClientRect();
+        let w = e.clientX - rect.left - 14;
+        w = Math.max(220, Math.min(540, w));
+        shell.style.gridTemplateColumns = w + 'px 14px 1fr';
+        if (state.map) state.map.invalidateSize();
+      };
+      const onUp = function() {
+        hResizer.classList.remove('dragging');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        if (state.map) state.map.invalidateSize();
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+
+    // ── Vertical (map ↕ results) ──
+    const vResizer = document.getElementById('vResizer');
+    vResizer.addEventListener('mousedown', function(e) {
+      e.preventDefault();
+      vResizer.classList.add('dragging');
+      document.body.style.cursor = 'row-resize';
+      document.body.style.userSelect = 'none';
+      const onMove = function(e) {
+        const rect = rightPanel.getBoundingClientRect();
+        let h = rect.bottom - e.clientY;
+        h = Math.max(100, Math.min(rect.height - 120, h));
+        rightPanel.style.gridTemplateRows = '1fr 14px ' + h + 'px';
+        if (state.map) state.map.invalidateSize();
+      };
+      const onUp = function() {
+        vResizer.classList.remove('dragging');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        if (state.map) state.map.invalidateSize();
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+
   function initialize() {
     state.map = L.map('map', { scrollWheelZoom: true, wheelDebounceTime: 60, wheelPxPerZoomLevel: 80 }).setView([42.3601, -71.0589], 8);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -610,6 +679,7 @@ APP_HTML = r"""
     }).addTo(state.map);
     document.getElementById('planDate').value = new Date().toISOString().slice(0, 10);
     populateStartTimes();
+    initResizers();
     if (isMobile()) switchMobileTab('plan');
     restoreCache();
     refreshCalendarDay();
