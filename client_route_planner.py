@@ -352,17 +352,22 @@ APP_HTML = r"""
         </div>
       </div>
 
-      <!-- Day summary / route steps -->
+      <!-- Day summary / route steps / calendar route -->
       <div class="res-col">
         <div class="sec-head">
           <span class="sec-label" id="summaryTabLabel">Day summary</span>
           <div style="display:flex;gap:4px;">
             <button class="ghost" id="showSummaryBtn" style="padding:2px 8px;font-size:10px;">Summary</button>
             <button class="ghost" id="showRouteBtn" style="padding:2px 8px;font-size:10px;">Route</button>
+            <button class="ghost" id="showCalRouteBtn" style="padding:2px 8px;font-size:10px;">Calendar</button>
           </div>
         </div>
         <div class="res-body" id="summaryBody">
           <div class="no-content">No plan yet.</div>
+        </div>
+        <div class="res-footer" id="calRouteFooter" style="display:none;">
+          <button class="primary" id="optimizeCalRouteBtn">Optimize calendar route</button>
+          <button class="ghost" id="openCalMapsBtn">Open in Maps</button>
         </div>
       </div>
 
@@ -406,6 +411,7 @@ APP_HTML = r"""
     optimizedWaypoints: [], summaryText: '',
     view: 'summary',
     openStopMenu: -1, addStopAfterIdx: -1,
+    calendarEventsFull: [], calendarRouteWaypoints: [], calendarRouteLayer: null,
   };
 
   function setStatus(msg, active) {
@@ -680,6 +686,34 @@ APP_HTML = r"""
   function renderSummaryPane() {
     const body = document.getElementById('summaryBody');
     const label = document.getElementById('summaryTabLabel');
+    const calFooter = document.getElementById('calRouteFooter');
+    calFooter.style.display = 'none';
+
+    if (state.view === 'calroute') {
+      label.textContent = 'Calendar route';
+      const events = state.calendarRouteWaypoints.length
+        ? state.calendarRouteWaypoints
+        : state.calendarEventsFull.filter(e => e.location);
+      if (!events.length) {
+        body.innerHTML = '<div class="no-content">No calendar events with locations. Build a plan with Calendar connected.</div>';
+        return;
+      }
+      const startHtml = `<div class="route-step"><div class="route-step-n">S</div><div><div class="route-step-name">Start</div><div class="route-step-meta">Your chosen location</div></div></div>`;
+      const stepsHtml = events.map((ev, idx) => {
+        const seg = (state.calendarRouteSegments || [])[idx] || {};
+        return `<div class="route-step">
+          <div class="route-step-n">${idx + 1}</div>
+          <div style="flex:1;min-width:0;">
+            <div class="route-step-name">${esc(ev.summary || ev.name || 'Event')}</div>
+            <div class="route-step-meta">${esc(ev.start_time || '')}${ev.location ? ' · ' + esc(ev.location) : ''}${seg.distance_text ? ' · ' + esc(seg.distance_text) : ''}${seg.duration_text ? ' · ' + esc(seg.duration_text) : ''}</div>
+          </div>
+        </div>`;
+      }).join('');
+      body.innerHTML = startHtml + stepsHtml;
+      calFooter.style.display = 'flex';
+      return;
+    }
+
     if (state.view === 'summary') {
       label.textContent = 'Day summary';
       body.innerHTML = state.summaryText
@@ -811,7 +845,11 @@ APP_HTML = r"""
       state.suggestedStops = data.suggested_stops || [];
       state.suggestedStopIds = new Set(state.suggestedStops.map(x => x.id));
       state.summaryText = data.summary_text || '';
-      state.view = 'summary';
+      state.calendarEventsFull = (data.calendar_events || []).filter(e => e.location);
+      state.calendarRouteWaypoints = [];
+      state.calendarRouteSegments = [];
+      if (state.calendarRouteLayer) { state.calendarRouteLayer.remove(); state.calendarRouteLayer = null; }
+      if (state.view === 'calroute') state.view = 'summary';
       renderSuggestedStops();
       renderSummaryPane();
       renderMapPins(state.firms);
@@ -824,10 +862,62 @@ APP_HTML = r"""
 
   function clearRoute() {
     if (state.routeLayer) { state.routeLayer.remove(); state.routeLayer = null; }
+    if (state.calendarRouteLayer) { state.calendarRouteLayer.remove(); state.calendarRouteLayer = null; }
     state.optimizedWaypoints = [];
     state.lastSegments = [];
+    state.calendarRouteWaypoints = [];
+    state.calendarRouteSegments = [];
     renderSummaryPane();
     setStatus('Route cleared.', false);
+  }
+
+  async function optimizeCalendarRoute() {
+    if (!state.currentLocation) return setStatus('Set a start location first.', false);
+    const stops = state.calendarEventsFull.filter(e => e.lat != null && e.lng != null)
+      .map(e => ({ name: e.summary || 'Event', address: e.location || '', lat: e.lat, lng: e.lng, start_time: e.start_time }));
+    if (!stops.length) return setStatus('No calendar events with geocoded locations to optimize.', false);
+    setStatus('Optimizing calendar route…', true);
+    try {
+      const res = await fetch('/api/optimize-route', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ current_location: state.currentLocation, stops })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Route optimization failed.');
+      state.calendarRouteWaypoints = (data.ordered_stops || []).map((stop, i) => {
+        const orig = stops.find(s => s.lat === stop.lat && s.lng === stop.lng) || stop;
+        return Object.assign({}, orig, stop);
+      });
+      state.calendarRouteSegments = data.segments || [];
+      drawCalendarRoute(data.geometry || []);
+      renderSummaryPane();
+      setStatus('Calendar route optimized.', true);
+      if (isMobile()) switchMobileTab('map');
+    } catch (err) {
+      setStatus(err.message || 'Route optimization failed.', false);
+    }
+  }
+
+  function drawCalendarRoute(coords) {
+    if (state.calendarRouteLayer) state.calendarRouteLayer.remove();
+    if (!coords.length) return;
+    state.calendarRouteLayer = L.polyline(coords.map(c => [c[1], c[0]]), {
+      weight: 5, color: '#2563eb', dashArray: '8 5'
+    }).addTo(state.map);
+    state.map.fitBounds(state.calendarRouteLayer.getBounds(), { padding: [50, 50] });
+  }
+
+  function openCalendarInMaps() {
+    const stops = state.calendarRouteWaypoints.length
+      ? state.calendarRouteWaypoints
+      : state.calendarEventsFull.filter(e => e.location);
+    if (!state.currentLocation || !stops.length) return setStatus('Need a start location and calendar events with locations.', false);
+    const origin = `${state.currentLocation.lat},${state.currentLocation.lng}`;
+    const destination = encodeURIComponent(stops[stops.length - 1].location || stops[stops.length - 1].address || '');
+    const waypoints = stops.slice(0, -1).map(s => s.location || s.address || '').filter(Boolean).join('|');
+    let url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${destination}&travelmode=driving`;
+    if (waypoints) url += `&waypoints=${encodeURIComponent(waypoints)}`;
+    window.open(url, '_blank');
   }
 
   async function optimizeSuggestedStops() {
@@ -887,6 +977,9 @@ APP_HTML = r"""
   document.getElementById('openMapsBtn').addEventListener('click', openInGoogleMaps);
   document.getElementById('showSummaryBtn').addEventListener('click', () => { state.view = 'summary'; renderSummaryPane(); });
   document.getElementById('showRouteBtn').addEventListener('click', () => { state.view = 'route'; renderSummaryPane(); });
+  document.getElementById('showCalRouteBtn').addEventListener('click', () => { state.view = 'calroute'; renderSummaryPane(); });
+  document.getElementById('optimizeCalRouteBtn').addEventListener('click', optimizeCalendarRoute);
+  document.getElementById('openCalMapsBtn').addEventListener('click', openCalendarInMaps);
   document.getElementById('addStopSearch').addEventListener('input', function() { renderAddStopList(this.value); });
   document.getElementById('customStopAddBtn').addEventListener('click', addCustomStop);
   document.getElementById('customStopAddr').addEventListener('keydown', function(e) { if (e.key === 'Enter') addCustomStop(); });
