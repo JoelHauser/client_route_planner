@@ -920,7 +920,7 @@ app.secret_key = _secret_key
 
 # Allow OAuth over plain HTTP only when explicitly running in development mode.
 # In production this must be unset so the OAuth library enforces HTTPS.
-_dev_mode = os.getenv("FLASK_ENV") == "production"
+_dev_mode = os.getenv("FLASK_ENV") == "development"
 if _dev_mode:
     os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
 
