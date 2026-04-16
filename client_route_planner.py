@@ -125,7 +125,7 @@ APP_HTML = r"""
     .badge.amber { background: var(--amber-bg); color: var(--amber-text); border-color: var(--amber-border); }
     .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; flex-shrink: 0; display: inline-block; }
     /* section header inside panels */
-    .sec-head { padding: 10px 16px; background: var(--soft-bg); border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+    .sec-head { padding: 10px 16px; background: var(--soft-bg); border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; min-height: 44px; }
     .sec-label { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
     /* calendar panel */
     .cal-body { flex: 1; overflow-y: auto; padding: 10px 16px; }
