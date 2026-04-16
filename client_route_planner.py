@@ -1343,6 +1343,18 @@ def _parse_start_time(start_time_str: str | None) -> tuple[int, int]:
         return 9, 0
 
 
+def _event_after_start(event: dict, start_h: int, start_m: int) -> bool:
+    """Return True if the event starts at or after (start_h, start_m)."""
+    raw = (event.get("start_raw") or "").strip()
+    if not raw or "T" not in raw:
+        return True  # all-day events — always keep
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        return (dt.hour * 60 + dt.minute) >= (start_h * 60 + start_m)
+    except Exception:
+        return True
+
+
 def make_summary_text(day_str, mode, nearby_event, chosen, outreach, start_time=None):
     dt = datetime.strptime(day_str, "%Y-%m-%d")
     header = dt.strftime("%A, %B %d")
@@ -1386,6 +1398,9 @@ def build_recommendations(day_str: str, mode: str, neighborhood: str, current_lo
     candidates = choose_candidate_firms(firms, visit_index, neighborhood)
     connected, events = get_calendar_events_for_day(day_str)
     events = enrich_calendar_locations(events) if connected else []
+    if start_time:
+        sh, sm = _parse_start_time(start_time)
+        events = [e for e in events if _event_after_start(e, sh, sm)]
 
     chosen = []
     outreach = []
