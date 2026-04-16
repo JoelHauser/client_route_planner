@@ -970,6 +970,7 @@ APP_HTML = r"""
     if (state.suggestedStops.length) buildRecommendations();
   });
   document.getElementById('setManualLocationBtn').addEventListener('click', setManualStartLocation);
+  document.getElementById('manualStartInput').addEventListener('keydown', function(e) { if (e.key === 'Enter') setManualStartLocation(); });
   document.getElementById('locateBtn').addEventListener('click', useCurrentLocation);
   document.getElementById('recommendBtn').addEventListener('click', buildRecommendations);
   document.getElementById('clearRouteBtn').addEventListener('click', clearRoute);
