@@ -2,8 +2,9 @@
 start.sh
 .env
 
-# Geocode cache contains addresses — keep off version control
+# Geocode cache and Google token — keep off version control
 geocode_cache.json
+google_token.json
 
 # Python
 __pycache__/

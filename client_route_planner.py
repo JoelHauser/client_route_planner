@@ -25,6 +25,7 @@ except Exception:
     build = None
 
 CACHE_FILE = "geocode_cache.json"
+GOOGLE_TOKEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "google_token.json")
 GEOCODE_DELAY_SECONDS = 1.1
 LAST_GEOCODE_AT = 0.0
 GOOGLE_SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
@@ -128,6 +129,8 @@ APP_HTML = r"""
     .event-time { font-size: 11px; color: var(--muted); min-width: 52px; padding-top: 1px; flex-shrink: 0; }
     .event-title { font-size: 12px; font-weight: 600; }
     .event-loc { font-size: 11px; color: var(--muted); margin-top: 1px; }
+    .event-loc-link { cursor: pointer; text-decoration: underline dotted; }
+    .event-loc-link:hover { color: var(--text); }
     /* results panel */
     .res-col { display: flex; flex-direction: column; min-height: 0; overflow: hidden; border-right: 1px solid var(--line); }
     .res-col:last-child { border-right: none; }
@@ -601,7 +604,7 @@ APP_HTML = r"""
   });
 
   function initialize() {
-    state.map = L.map('map').setView([42.3601, -71.0589], 8);
+    state.map = L.map('map', { scrollWheelZoom: true, wheelDebounceTime: 60, wheelPxPerZoomLevel: 80 }).setView([42.3601, -71.0589], 8);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
     }).addTo(state.map);
@@ -678,7 +681,7 @@ APP_HTML = r"""
         <div class="event-time">${esc(ev.start_time || '')}</div>
         <div>
           <div class="event-title">${esc(ev.summary || 'Untitled')}</div>
-          ${ev.location ? `<div class="event-loc">${esc(ev.location)}</div>` : ''}
+          ${ev.location ? `<div class="event-loc event-loc-link" data-address="${ev.location.replace(/"/g,'&quot;')}" title="Use as start location">${esc(ev.location)} ↗</div>` : ''}
         </div>
       </div>
     `).join('');
@@ -785,6 +788,36 @@ APP_HTML = r"""
       document.getElementById('calendarBadge').textContent = 'Calendar not connected';
     }
   }
+
+  async function setLocationFromCalendarEvent(address) {
+    if (!address) return;
+    setStatus('Setting location from calendar event…', true);
+    try {
+      const res = await fetch('/api/geocode-address', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ address })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not geocode address.');
+      state.currentLocation = { lat: data.lat, lng: data.lng };
+      if (state.currentLocationMarker) state.currentLocationMarker.remove();
+      state.currentLocationMarker = L.circleMarker([data.lat, data.lng], {
+        radius: 8, fillColor: '#111827', color: '#fff', weight: 2, fillOpacity: 1
+      }).bindPopup(`Start: ${esc(data.formatted_address)}`).addTo(state.map);
+      document.getElementById('manualStartInput').value = data.formatted_address || address;
+      state.map.setView([data.lat, data.lng], 13);
+      renderMapPins(state.firms);
+      setStatus('Start location set from calendar.', true);
+      buildRecommendations();
+    } catch (err) {
+      setStatus(err.message || 'Could not set location.', false);
+    }
+  }
+
+  document.getElementById('calendarEvents').addEventListener('click', function(e) {
+    const loc = e.target.closest('.event-loc-link');
+    if (loc) setLocationFromCalendarEvent(loc.dataset.address);
+  });
 
   async function setManualStartLocation() {
     const address = document.getElementById('manualStartInput').value.trim();
@@ -1338,14 +1371,36 @@ def get_google_client_config():
     }
 
 
+def _save_google_token(token_data: dict) -> None:
+    try:
+        with open(GOOGLE_TOKEN_FILE, "w", encoding="utf-8") as f:
+            json.dump(token_data, f)
+    except Exception:
+        pass
+
+
+def _load_google_token() -> dict | None:
+    try:
+        if os.path.exists(GOOGLE_TOKEN_FILE):
+            with open(GOOGLE_TOKEN_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return None
+
+
 def get_google_credentials():
-    token = session.get("google_token")
+    token = session.get("google_token") or _load_google_token()
     if not token or Credentials is None:
         return None
+    if not session.get("google_token"):
+        session["google_token"] = token
     creds = Credentials.from_authorized_user_info(token, GOOGLE_SCOPES)
     if creds.expired and creds.refresh_token:
         creds.refresh(GoogleRequest())
-        session["google_token"] = json.loads(creds.to_json())
+        token_data = json.loads(creds.to_json())
+        session["google_token"] = token_data
+        _save_google_token(token_data)
     return creds
 
 
@@ -1467,7 +1522,7 @@ def _event_after_start(event: dict, start_h: int, start_m: int) -> bool:
         return True
 
 
-def make_summary_text(day_str, mode, nearby_event, chosen, outreach, start_time=None):
+def make_summary_text(day_str, mode, nearby_event, chosen, start_time=None):
     dt = datetime.strptime(day_str, "%Y-%m-%d")
     header = dt.strftime("%A, %B %d")
     lines = [header]
@@ -1493,11 +1548,6 @@ def make_summary_text(day_str, mode, nearby_event, chosen, outreach, start_time=
                 lines.append(f"- stop by {firm['name']} around {dh}:{m:02d} {s}")
             else:
                 lines.append(f"- {firm['name']} at {dh}:{m:02d} {s}")
-    if outreach:
-        lines.append("")
-        lines.append("Reach out today to:")
-        for item in outreach:
-            lines.append(f"- {item['contact']} at {item['firm']}")
     return "\n".join(lines)
 
 
@@ -1515,7 +1565,6 @@ def build_recommendations(day_str: str, mode: str, neighborhood: str, current_lo
         events = [e for e in events if _event_after_start(e, sh, sm)]
 
     chosen = []
-    outreach = []
     nearby_event = events[0] if events else None
 
     if mode == "near_meeting":
@@ -1567,11 +1616,7 @@ def build_recommendations(day_str: str, mode: str, neighborhood: str, current_lo
         ranked.sort(key=lambda x: (x[0], x[1], x[2]))
         chosen = [item[3] for item in ranked[:4]]
 
-    for firm in chosen[:2]:
-        if firm.get("primary_contact"):
-            outreach.append({"contact": firm["primary_contact"], "firm": firm["name"]})
-
-    summary_text = make_summary_text(day_str, mode, nearby_event, chosen, outreach, start_time=start_time)
+    summary_text = make_summary_text(day_str, mode, nearby_event, chosen, start_time=start_time)
     return {
         "summary_text": summary_text,
         "suggested_stops": chosen,
@@ -1696,7 +1741,9 @@ def google_callback():
         code_verifier=session.get("google_code_verifier"),
     )
     creds = flow.credentials
-    session["google_token"] = json.loads(creds.to_json())
+    token_data = json.loads(creds.to_json())
+    session["google_token"] = token_data
+    _save_google_token(token_data)
     return redirect(url_for("index"))
 
 
