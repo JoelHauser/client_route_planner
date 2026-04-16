@@ -903,8 +903,9 @@ APP_HTML = r"""
   function drawCalendarRoute(coords) {
     if (state.calendarRouteLayer) state.calendarRouteLayer.remove();
     if (!coords.length) return;
+    const isDarkCal = document.documentElement.getAttribute('data-theme') === 'dark';
     state.calendarRouteLayer = L.polyline(coords.map(c => [c[1], c[0]]), {
-      weight: 5, color: '#2563eb', dashArray: '8 5'
+      weight: 5, color: isDarkCal ? '#38bdf8' : '#2563eb', dashArray: '8 5'
     }).addTo(state.map);
     state.map.fitBounds(state.calendarRouteLayer.getBounds(), { padding: [50, 50] });
   }
@@ -948,7 +949,8 @@ APP_HTML = r"""
   function drawRoute(coords) {
     if (state.routeLayer) state.routeLayer.remove();
     if (!coords.length) return;
-    state.routeLayer = L.polyline(coords.map(c => [c[1], c[0]]), { weight: 5, color: '#111827' }).addTo(state.map);
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    state.routeLayer = L.polyline(coords.map(c => [c[1], c[0]]), { weight: 5, color: isDark ? '#f97316' : '#111827' }).addTo(state.map);
     state.map.fitBounds(state.routeLayer.getBounds(), { padding: [50, 50] });
   }
 
