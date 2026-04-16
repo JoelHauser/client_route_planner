@@ -80,9 +80,9 @@ APP_HTML = r"""
     [data-theme="dark"] .stop-n { background: #4b5563; color: #f9fafb; }
     /* ── LAYOUT ── */
     body { font-family: Inter, system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 13px; line-height: 1.5; height: 100vh; overflow: hidden; }
-    .shell { display: grid; grid-template-columns: 340px 1fr; grid-template-rows: 100vh; gap: 14px; padding: 14px; height: 100vh; }
+    .shell { display: grid; grid-template-columns: 340px 1fr; grid-template-rows: calc(100vh - 34px); gap: 14px; padding: 14px 14px 20px; height: 100vh; }
     .left { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
-    .right { display: grid; grid-template-rows: 1fr 260px; gap: 14px; min-height: 0; }
+    .right { display: grid; grid-template-rows: 1fr 310px; gap: 14px; min-height: 0; }
     /* panels */
     .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); }
     .controls-panel { flex-shrink: 0; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; }
@@ -1428,6 +1428,16 @@ def score_frequency_gap(firm):
     return (datetime.now() - last_visit).days
 
 
+def _proximity_minutes(firm: dict, current_location: dict | None) -> float:
+    """Driving-time proxy (minutes) from start location to firm. 9999 if unknown."""
+    if not current_location or firm.get("lat") is None or firm.get("lng") is None:
+        return 9999
+    return haversine_minutes(
+        current_location.get("lat"), current_location.get("lng"),
+        firm["lat"], firm["lng"],
+    )
+
+
 def _parse_start_time(start_time_str: str | None) -> tuple[int, int]:
     """Parse '9:00' or '13:30' into (hour, minute). Defaults to 9:00."""
     if not start_time_str:
@@ -1526,27 +1536,30 @@ def build_recommendations(day_str: str, mode: str, neighborhood: str, current_lo
             if not firm.get("visited_this_quarter"):
                 firm = dict(firm)
                 firm["reason"] = "Not seen this quarter"
-                ranked.append((score_frequency_gap(firm) * -1, firm.get("neighborhood") or "", firm))
-        ranked.sort(key=lambda x: (x[0], x[1]))
-        chosen = [item[2] for item in ranked[:4]]
+                prox = _proximity_minutes(firm, current_location)
+                ranked.append((score_frequency_gap(firm) * -1, prox, firm.get("neighborhood") or "", firm))
+        ranked.sort(key=lambda x: (x[0], x[1], x[2]))
+        chosen = [item[3] for item in ranked[:4]]
     elif mode == "frequency_protection":
         ranked = []
         for firm in candidates:
             gap = score_frequency_gap(firm)
             firm = dict(firm)
             firm["reason"] = "Falling behind"
-            ranked.append((-gap, 0 if not firm.get("visited_this_quarter") else 1, firm))
-        ranked.sort(key=lambda x: (x[0], x[1]))
-        chosen = [item[2] for item in ranked[:4]]
+            prox = _proximity_minutes(firm, current_location)
+            ranked.append((-gap, prox, 0 if not firm.get("visited_this_quarter") else 1, firm))
+        ranked.sort(key=lambda x: (x[0], x[1], x[2]))
+        chosen = [item[3] for item in ranked[:4]]
     elif mode == "outreach_first":
         ranked = []
         for firm in candidates:
             if not firm.get("visited_this_quarter"):
                 firm = dict(firm)
                 firm["reason"] = "Good target"
-                ranked.append((firm.get("neighborhood") or "", -score_frequency_gap(firm), firm))
-        ranked.sort(key=lambda x: (x[0], x[1]))
-        chosen = [item[2] for item in ranked[:4]]
+                prox = _proximity_minutes(firm, current_location)
+                ranked.append((prox, firm.get("neighborhood") or "", -score_frequency_gap(firm), firm))
+        ranked.sort(key=lambda x: (x[0], x[1], x[2]))
+        chosen = [item[3] for item in ranked[:4]]
 
     for firm in chosen[:2]:
         if firm.get("primary_contact"):
