@@ -1051,7 +1051,12 @@ APP_HTML = r"""
       if (state.view === 'calroute') state.view = 'summary';
       renderSuggestedStops();
       renderSummaryPane();
-      renderMapPins(state.firms);
+      renderMapPins(state.firms, true);  // redraw pins without auto-fit
+      // fit map to the suggested stops (+ start location) so we zoom into the relevant area
+      const planBounds = [];
+      state.suggestedStops.forEach(s => { if (s.lat != null && s.lng != null) planBounds.push([s.lat, s.lng]); });
+      if (state.currentLocation) planBounds.push([state.currentLocation.lat, state.currentLocation.lng]);
+      if (planBounds.length) state.map.fitBounds(planBounds, { padding: [60, 60] });
       setStatus('Plan ready.', true);
       if (isMobile()) switchMobileTab('stops');
     } catch (err) {
