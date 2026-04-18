@@ -167,6 +167,13 @@ APP_HTML = r"""
     .add-stop-item:hover { background: var(--soft-bg); border-color: var(--line); }
     .add-stop-item-name { font-size: 12px; font-weight: 600; }
     .add-stop-item-addr { font-size: 11px; color: var(--muted); }
+    /* custom stop name autocomplete */
+    .custom-name-wrap { position: relative; }
+    .custom-name-suggestions { position: absolute; top: 100%; left: 0; right: 0; z-index: 400; background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); box-shadow: 0 4px 16px rgba(0,0,0,.14); max-height: 120px; overflow-y: auto; display: none; }
+    .custom-name-suggestions.open { display: block; }
+    .custom-name-suggestion { padding: 6px 10px; font-size: 12px; cursor: pointer; }
+    .custom-name-suggestion:hover { background: var(--soft-bg); }
+    .custom-name-suggestion .csug-addr { font-size: 11px; color: var(--muted); margin-top: 1px; }
     /* route steps */
     .route-step { display: flex; gap: 8px; align-items: flex-start; padding: 9px 0; border-bottom: 1px solid var(--line); }
     .route-step:last-child { border-bottom: none; }
@@ -358,7 +365,10 @@ APP_HTML = r"""
             <div id="addStopList" class="add-stop-list"></div>
           </div>
           <div id="addStopCustomSection" style="display:none;flex-direction:column;gap:6px;">
-            <input id="customStopName" class="add-stop-input" type="text" placeholder="Stop name…">
+            <div class="custom-name-wrap">
+              <input id="customStopName" class="add-stop-input" type="text" placeholder="Stop name…" autocomplete="off">
+              <div id="customNameSuggestions" class="custom-name-suggestions"></div>
+            </div>
             <input id="customStopAddr" class="add-stop-input" type="text" placeholder="Address…">
             <button class="primary" id="customStopAddBtn" style="padding:7px;">Add stop</button>
           </div>
@@ -565,7 +575,7 @@ APP_HTML = r"""
     state.suggestedStopIds = new Set(state.suggestedStops.map(x => x.id));
     hideAddStopPanel();
     renderSuggestedStops();
-    renderMapPins(state.firms);
+    renderMapPins(state.firms, true);  // preserve zoom when removing a stop
   }
 
   function showAddFirmPanel(afterIdx) {
@@ -632,7 +642,7 @@ APP_HTML = r"""
     state.suggestedStopIds = new Set(state.suggestedStops.map(x => x.id).filter(Boolean));
     hideAddStopPanel();
     renderSuggestedStops();
-    renderMapPins(state.firms);
+    renderMapPins(state.firms, true);  // preserve zoom when adding a stop
   }
 
   async function addCustomStop() {
@@ -745,25 +755,50 @@ APP_HTML = r"""
     syncAirtable();
   }
 
+  const STOP_COLORS = ['#ef4444','#f97316','#eab308','#22c55e','#3b82f6','#8b5cf6','#ec4899','#14b8a6'];
+
+  function stopColor(idx) { return STOP_COLORS[idx % STOP_COLORS.length]; }
+
   function clearMarkers() { state.markers.forEach(m => m.remove()); state.markers = []; }
 
-  function renderMapPins(firms) {
+  function renderMapPins(firms, skipFit) {
     clearMarkers();
+    // build an index from firm id → suggested stop index for color lookup
+    const stopIndexMap = {};
+    state.suggestedStops.forEach((s, i) => { if (s.id) stopIndexMap[s.id] = i; });
+
     const bounds = [];
     firms.forEach(firm => {
       if (firm.lat == null || firm.lng == null) return;
-      const isSuggested = state.suggestedStopIds.has(firm.id);
+      const stopIdx = firm.id != null ? stopIndexMap[firm.id] : undefined;
+      const isSuggested = stopIdx !== undefined;
+      const color = isSuggested ? stopColor(stopIdx) : '#2563eb';
       const marker = L.circleMarker([firm.lat, firm.lng], {
         radius: isSuggested ? 9 : 6,
-        fillColor: isSuggested ? '#111827' : '#2563eb',
+        fillColor: color,
         color: '#ffffff', weight: 2, opacity: 1, fillOpacity: 1
       }).addTo(state.map);
-      marker.bindPopup(`<strong>${esc(firm.name)}</strong><br>${esc(firm.address)}<br><span style="color:#6b7280">${esc(firm.neighborhood||'')}</span>`);
+      const label = isSuggested ? ` <span style="background:${color};color:#fff;border-radius:999px;padding:1px 6px;font-size:10px;font-weight:700;">${stopIdx + 1}</span>` : '';
+      marker.bindPopup(`<strong>${esc(firm.name)}</strong>${label}<br>${esc(firm.address)}<br><span style="color:#6b7280">${esc(firm.neighborhood||'')}</span>`);
       state.markers.push(marker);
       bounds.push([firm.lat, firm.lng]);
     });
+
+    // also pin any custom stops (id starts with 'custom_') that may not be in firms list
+    state.suggestedStops.forEach((s, i) => {
+      if (s.id && s.id.startsWith('custom_') && s.lat != null && s.lng != null) {
+        const color = stopColor(i);
+        const marker = L.circleMarker([s.lat, s.lng], {
+          radius: 9, fillColor: color, color: '#ffffff', weight: 2, opacity: 1, fillOpacity: 1
+        }).addTo(state.map);
+        marker.bindPopup(`<strong>${esc(s.name)}</strong> <span style="background:${color};color:#fff;border-radius:999px;padding:1px 6px;font-size:10px;font-weight:700;">${i + 1}</span><br>${esc(s.address || '')}`);
+        state.markers.push(marker);
+        bounds.push([s.lat, s.lng]);
+      }
+    });
+
     if (state.currentLocation) bounds.push([state.currentLocation.lat, state.currentLocation.lng]);
-    if (bounds.length) state.map.fitBounds(bounds, { padding: [50, 50] });
+    if (!skipFit && bounds.length) state.map.fitBounds(bounds, { padding: [50, 50] });
     if (state.currentLocationMarker) state.currentLocationMarker.addTo(state.map);
   }
 
@@ -777,7 +812,7 @@ APP_HTML = r"""
     }
     body.innerHTML = state.suggestedStops.map((firm, i) => `
       <div class="stop" data-idx="${i}" style="cursor:pointer;">
-        <div class="stop-n">${i + 1}</div>
+        <div class="stop-n" style="background:${stopColor(i)}">${i + 1}</div>
         <div style="flex:1;min-width:0;">
           <div class="stop-name">${esc(firm.name)}</div>
           <div class="stop-addr">${esc(firm.address || '')}</div>
@@ -1151,6 +1186,47 @@ APP_HTML = r"""
   document.getElementById('addStopSearch').addEventListener('input', function() { renderAddStopList(this.value); });
   document.getElementById('customStopAddBtn').addEventListener('click', addCustomStop);
   document.getElementById('customStopAddr').addEventListener('keydown', function(e) { if (e.key === 'Enter') addCustomStop(); });
+
+  // ── Custom stop name autocomplete ──
+  (function() {
+    const nameInput = document.getElementById('customStopName');
+    const addrInput = document.getElementById('customStopAddr');
+    const sugBox = document.getElementById('customNameSuggestions');
+
+    function renderNameSuggestions(q) {
+      if (!q) { sugBox.classList.remove('open'); sugBox.innerHTML = ''; return; }
+      const existing = new Set(state.suggestedStops.map(s => s.id).filter(Boolean));
+      const ql = q.toLowerCase();
+      const hits = state.firms.filter(f =>
+        !existing.has(f.id) && (f.name || '').toLowerCase().includes(ql)
+      ).slice(0, 8);
+      if (!hits.length) { sugBox.classList.remove('open'); sugBox.innerHTML = ''; return; }
+      sugBox.innerHTML = hits.map(f => `
+        <div class="custom-name-suggestion" data-firm-id="${esc(f.id)}">
+          <div>${esc(f.name)}</div>
+          ${f.address ? `<div class="csug-addr">${esc(f.address)}</div>` : ''}
+        </div>
+      `).join('');
+      sugBox.classList.add('open');
+      sugBox.querySelectorAll('.custom-name-suggestion').forEach(el => {
+        el.addEventListener('mousedown', function(e) {
+          e.preventDefault(); // prevent blur before click
+          const firm = state.firms.find(f => f.id === el.dataset.firmId);
+          if (firm) {
+            nameInput.value = firm.name;
+            addrInput.value = firm.address || '';
+          }
+          sugBox.classList.remove('open');
+          sugBox.innerHTML = '';
+        });
+      });
+    }
+
+    nameInput.addEventListener('input', function() { renderNameSuggestions(this.value.trim()); });
+    nameInput.addEventListener('blur', function() {
+      setTimeout(() => { sugBox.classList.remove('open'); }, 150);
+    });
+  })();
 
   // ── Dark mode ──
   (function() {
