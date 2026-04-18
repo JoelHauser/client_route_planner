@@ -340,7 +340,10 @@ APP_HTML = r"""
       <div class="res-col">
         <div class="sec-head">
           <span class="sec-label">Suggested stops</span>
-          <span class="badge" id="stopsBadge">0</span>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <span class="badge" id="stopsBadge">0</span>
+            <button class="stop-menu-btn" id="addStopHeaderBtn" title="Add stop" style="font-size:18px;line-height:1;padding:1px 6px;">+</button>
+          </div>
         </div>
         <div class="res-body" id="stopsBody">
           <div class="no-content">Build a plan to see stops.</div>
@@ -413,7 +416,11 @@ APP_HTML = r"""
 <div id="stopCtxMenu" class="stop-ctx-menu">
   <button class="stop-ctx-item danger" onclick="ignoreStop(+document.getElementById('stopCtxMenu').dataset.idx)">✕  Remove this stop</button>
   <button class="stop-ctx-item" onclick="showAddFirmPanel(+document.getElementById('stopCtxMenu').dataset.idx)">＋  Add stop from firms list</button>
-  <button class="stop-ctx-item" onclick="showCreateCustomPanel(+document.getElementById('stopCtxMenu').dataset.idx)">✎  Create custom stop</button>
+</div>
+
+<div id="stopAddMenu" class="stop-ctx-menu">
+  <button class="stop-ctx-item" onclick="closeStopAddMenu();showCreateCustomPanel(-1);">✎  Create stop</button>
+  <button class="stop-ctx-item" onclick="closeStopAddMenu();addClosestSuggestion();">⊕  Add closest suggestion</button>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
@@ -506,6 +513,50 @@ APP_HTML = r"""
   function closeStopCtxMenu() {
     state.openStopMenu = -1;
     document.getElementById('stopCtxMenu').classList.remove('open');
+  }
+
+  function openStopAddMenu(btnEl) {
+    const menu = document.getElementById('stopAddMenu');
+    const alreadyOpen = menu.classList.contains('open');
+    closeStopAddMenu();
+    if (alreadyOpen) return;
+    const rect = btnEl.getBoundingClientRect();
+    menu.style.top = (rect.bottom + 4) + 'px';
+    const right = window.innerWidth - rect.right;
+    menu.style.right = right + 'px';
+    menu.style.left = 'auto';
+    menu.classList.add('open');
+  }
+
+  function closeStopAddMenu() {
+    document.getElementById('stopAddMenu').classList.remove('open');
+  }
+
+  function addClosestSuggestion() {
+    if (!state.currentLocation) {
+      setStatus('Set a start location first.', false);
+      return;
+    }
+    const existing = new Set(state.suggestedStops.map(s => s.id).filter(Boolean));
+    const candidates = state.firms.filter(f =>
+      !existing.has(f.id) && f.lat != null && f.lng != null
+    );
+    if (!candidates.length) {
+      setStatus('No more firms to add.', false);
+      return;
+    }
+    // find closest by straight-line distance
+    let best = null, bestDist = Infinity;
+    const { lat: sLat, lng: sLng } = state.currentLocation;
+    candidates.forEach(f => {
+      const dlat = f.lat - sLat, dlng = f.lng - sLng;
+      const d = dlat * dlat + dlng * dlng;
+      if (d < bestDist) { bestDist = d; best = f; }
+    });
+    if (best) {
+      insertStop(Object.assign({}, best, { reason: 'Closest to start' }), state.suggestedStops.length - 1);
+      setStatus('Closest firm added.', true);
+    }
   }
 
   function ignoreStop(idx) {
@@ -613,6 +664,14 @@ APP_HTML = r"""
     if (!e.target.closest('#stopCtxMenu') && !e.target.closest('.stop-menu-btn') && state.openStopMenu >= 0) {
       closeStopCtxMenu();
     }
+    if (!e.target.closest('#stopAddMenu') && !e.target.closest('#addStopHeaderBtn')) {
+      closeStopAddMenu();
+    }
+  });
+
+  document.getElementById('addStopHeaderBtn').addEventListener('click', function(e) {
+    e.stopPropagation();
+    openStopAddMenu(this);
   });
 
   function initResizers() {
