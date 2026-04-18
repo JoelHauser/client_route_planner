@@ -728,5 +728,25 @@
     "formatted_address": "280, Summer Street, Seaport, South Boston, Boston, Suffolk County, Massachusetts, 02210, United States",
     "lat": 42.3503134,
     "lng": -71.0496852
+  },
+  "agnes varis campus center and auditorium, 5 jumbo's path, north grafton, ma 01536, usa": {
+    "formatted_address": "Agnes Varis Campus Center and Auditorium, 5 Jumbo's Path, North Grafton, MA 01536, USA",
+    "lat": null,
+    "lng": null
+  },
+  "374 congress st boston, ma, united states": {
+    "formatted_address": "374 Congress Street, 374, Congress Street, Seaport, South Boston, Boston, Suffolk County, Massachusetts, 02210, United States",
+    "lat": 42.3500535,
+    "lng": -71.0473357
+  },
+  "101 seaport blvd boston, ma, united states": {
+    "formatted_address": "101, Seaport Boulevard, Seaport, South Boston, Boston, Suffolk County, Massachusetts, 02210, United States",
+    "lat": 42.3512252,
+    "lng": -71.0453952
+  },
+  "120, saint james avenue, back bay, boston, suffolk county, massachusetts, 02116, united states": {
+    "formatted_address": "120, Saint James Avenue, Back Bay, Boston, Suffolk County, Massachusetts, 02116, United States",
+    "lat": 42.3499312,
+    "lng": -71.0741785
   }
 }
