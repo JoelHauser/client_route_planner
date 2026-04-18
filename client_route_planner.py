@@ -425,7 +425,6 @@ APP_HTML = r"""
 
 <div id="stopCtxMenu" class="stop-ctx-menu">
   <button class="stop-ctx-item danger" onclick="ignoreStop(+document.getElementById('stopCtxMenu').dataset.idx)">✕  Remove this stop</button>
-  <button class="stop-ctx-item" onclick="showAddFirmPanel(+document.getElementById('stopCtxMenu').dataset.idx)">＋  Add stop from firms list</button>
 </div>
 
 <div id="stopAddMenu" class="stop-ctx-menu">
@@ -755,7 +754,7 @@ APP_HTML = r"""
     syncAirtable();
   }
 
-  const STOP_COLORS = ['#ef4444','#f97316','#eab308','#22c55e','#3b82f6','#8b5cf6','#ec4899','#14b8a6'];
+  const STOP_COLORS = ['#e53935','#fb8c00','#43a047','#1e88e5','#8e24aa','#00acc1','#d81b60','#5c6bc0'];
 
   function stopColor(idx) { return STOP_COLORS[idx % STOP_COLORS.length]; }
 
@@ -774,9 +773,9 @@ APP_HTML = r"""
       const isSuggested = stopIdx !== undefined;
       const color = isSuggested ? stopColor(stopIdx) : '#2563eb';
       const marker = L.circleMarker([firm.lat, firm.lng], {
-        radius: isSuggested ? 9 : 6,
+        radius: isSuggested ? 12 : 6,
         fillColor: color,
-        color: '#ffffff', weight: 2, opacity: 1, fillOpacity: 1
+        color: '#ffffff', weight: isSuggested ? 3 : 2, opacity: 1, fillOpacity: 1
       }).addTo(state.map);
       const label = isSuggested ? ` <span style="background:${color};color:#fff;border-radius:999px;padding:1px 6px;font-size:10px;font-weight:700;">${stopIdx + 1}</span>` : '';
       marker.bindPopup(`<strong>${esc(firm.name)}</strong>${label}<br>${esc(firm.address)}<br><span style="color:#6b7280">${esc(firm.neighborhood||'')}</span>`);
@@ -789,7 +788,7 @@ APP_HTML = r"""
       if (s.id && s.id.startsWith('custom_') && s.lat != null && s.lng != null) {
         const color = stopColor(i);
         const marker = L.circleMarker([s.lat, s.lng], {
-          radius: 9, fillColor: color, color: '#ffffff', weight: 2, opacity: 1, fillOpacity: 1
+          radius: 12, fillColor: color, color: '#ffffff', weight: 3, opacity: 1, fillOpacity: 1
         }).addTo(state.map);
         marker.bindPopup(`<strong>${esc(s.name)}</strong> <span style="background:${color};color:#fff;border-radius:999px;padding:1px 6px;font-size:10px;font-weight:700;">${i + 1}</span><br>${esc(s.address || '')}`);
         state.markers.push(marker);
