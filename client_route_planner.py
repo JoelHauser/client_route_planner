@@ -919,8 +919,12 @@ APP_HTML = r"""
       const badge = document.getElementById('syncBadge');
       badge.className = 'badge green';
       const mapped = state.firms.filter(f => f.lat != null && f.lng != null).length;
-      const unmapped = state.firms.length - mapped;
-      badge.innerHTML = '<span class="dot"></span> ' + mapped + ' on map' + (unmapped ? ' · ' + unmapped + ' no address' : '');
+      const noAddr = state.firms.filter(f => !f.raw_address).length;
+      const notGeocoded = state.firms.length - mapped - noAddr;
+      let badgeText = '<span class="dot"></span> ' + mapped + ' on map';
+      if (notGeocoded > 0) badgeText += ' · ' + notGeocoded + ' not mapped';
+      if (noAddr > 0) badgeText += ' · ' + noAddr + ' no address';
+      badge.innerHTML = badgeText;
       renderMapPins(state.firms);
       setStatus('Airtable synced.', true);
     } catch (err) {
@@ -1531,7 +1535,7 @@ def sync_airtable_data() -> dict:
         firms.append({
             "id": record.get("id"),
             "name": name,
-            "address": geo.get("formatted_address") or address,
+            "address": address if geo.get("lat") is None else (geo.get("formatted_address") or address),
             "raw_address": address,
             "neighborhood": as_text(fields.get(neighborhood_field)),
             "contact": as_text(fields.get(contact_field)),
