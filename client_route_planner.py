@@ -1397,6 +1397,28 @@ def normalize_address_key(address: str) -> str:
     return " ".join(address.strip().lower().split())
 
 
+import re as _re
+
+def strip_subunit(address: str) -> str:
+    """Remove suite/floor/unit suffixes that confuse geocoders, keeping the street address."""
+    # Remove anything after a comma that looks like a suite/floor/unit
+    # e.g. "123 Main St, Suite 400, Boston MA" -> "123 Main St, Boston MA"
+    cleaned = _re.sub(
+        r",?\s*(?:suite|ste\.?|floor|fl\.?|unit|apt\.?|#)\s*[\w\-]+",
+        "",
+        address,
+        flags=_re.IGNORECASE,
+    )
+    # Also strip ordinal floor patterns like "3rd Floor" or "Floor 3" anywhere in the string
+    cleaned = _re.sub(
+        r"\b\d+(?:st|nd|rd|th)?\s+floor\b|\bfloor\s+\d+\b",
+        "",
+        cleaned,
+        flags=_re.IGNORECASE,
+    )
+    return " ".join(cleaned.split())
+
+
 def geocode_address(address: str, cache: dict) -> dict:
     global LAST_GEOCODE_AT
     cache_key = normalize_address_key(address)
@@ -1495,7 +1517,8 @@ def sync_airtable_data() -> dict:
         address = as_text(fields.get(address_field))
         if address:
             addr_key = normalize_address_key(address)
-            geo = known_geo.get(addr_key) or geocode_address(address, cache)
+            geocode_addr = strip_subunit(address)
+            geo = known_geo.get(addr_key) or geocode_address(geocode_addr, cache)
         else:
             geo = {"formatted_address": "", "lat": None, "lng": None}
         firms.append({
@@ -2013,7 +2036,7 @@ def api_geocode_address():
         address = (request.get_json(force=True) or {}).get("address", "").strip()
         if not address:
             return jsonify({"error": "Address is required."}), 400
-        result = geocode_address(address, load_geocode_cache())
+        result = geocode_address(strip_subunit(address), load_geocode_cache())
         if result.get("lat") is None:
             return jsonify({"error": "Could not find that address."}), 404
         return jsonify(result)
