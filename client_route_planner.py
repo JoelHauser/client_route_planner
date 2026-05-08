@@ -1431,7 +1431,7 @@ def _nominatim_query(address: str) -> list:
         time.sleep(GEOCODE_DELAY_SECONDS - elapsed)
     response = requests.get(
         "https://nominatim.openstreetmap.org/search",
-        params={"q": address, "format": "jsonv2", "limit": 1},
+        params={"q": address, "format": "jsonv2", "limit": 1, "countrycodes": "us"},
         headers={"User-Agent": "where2go-scheduling-assistant/1.0"},
         timeout=20,
     )
@@ -1554,7 +1554,7 @@ def sync_airtable_data() -> dict:
         firms.append({
             "id": record.get("id"),
             "name": name,
-            "address": address if geo.get("lat") is None else (geo.get("formatted_address") or address),
+            "address": address,
             "raw_address": address,
             "neighborhood": as_text(fields.get(neighborhood_field)),
             "contact": as_text(fields.get(contact_field)),
