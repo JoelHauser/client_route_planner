@@ -24,7 +24,7 @@ except Exception:
     GoogleRequest = None
     build = None
 
-CACHE_FILE = "geocode_cache.json"
+CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "geocode_cache.json")
 GOOGLE_TOKEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "google_token.json")
 GEOCODE_DELAY_SECONDS = 1.5
 LAST_GEOCODE_AT = 0.0
