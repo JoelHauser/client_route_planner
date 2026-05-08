@@ -752,7 +752,6 @@ APP_HTML = r"""
     restoreCache();
     refreshCalendarDay();
     syncAirtable();
-    setInterval(syncAirtable, 12 * 60 * 60 * 1000); // auto-sync every 12 hours
   }
 
   const STOP_COLORS = ['#e53935','#fb8c00','#43a047','#1e88e5','#8e24aa','#00acc1','#d81b60','#5c6bc0'];
@@ -2126,6 +2125,20 @@ def api_optimize_route():
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
+
+def _background_sync_loop():
+    import threading
+    def loop():
+        while True:
+            time.sleep(12 * 60 * 60)
+            try:
+                sync_airtable_data()
+            except Exception:
+                pass
+    t = threading.Thread(target=loop, daemon=True)
+    t.start()
+
+_background_sync_loop()
 
 if __name__ == "__main__":
     app.run(debug=_dev_mode, host="127.0.0.1", port=5000)
