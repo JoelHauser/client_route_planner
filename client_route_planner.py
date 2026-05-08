@@ -1423,43 +1423,62 @@ def strip_subunit(address: str) -> str:
     return " ".join(cleaned.split())
 
 
-def geocode_address(address: str, cache: dict) -> dict:
+def _nominatim_query(address: str) -> list:
+    """Single Nominatim request with rate limiting. Returns results list or raises."""
     global LAST_GEOCODE_AT
+    elapsed = time.time() - LAST_GEOCODE_AT
+    if elapsed < GEOCODE_DELAY_SECONDS:
+        time.sleep(GEOCODE_DELAY_SECONDS - elapsed)
+    response = requests.get(
+        "https://nominatim.openstreetmap.org/search",
+        params={"q": address, "format": "jsonv2", "limit": 1},
+        headers={"User-Agent": "where2go-scheduling-assistant/1.0"},
+        timeout=20,
+    )
+    LAST_GEOCODE_AT = time.time()
+    if response.status_code == 429:
+        raise requests.HTTPError("429")
+    response.raise_for_status()
+    return response.json()
+
+
+def geocode_address(address: str, cache: dict) -> dict:
     cache_key = normalize_address_key(address)
-    # Only use cached result if it has real coordinates — don't serve stale nulls
     cached = cache.get(cache_key)
     if cached and cached.get("lat") is not None:
         return cached
-    for attempt in range(4):
-        elapsed = time.time() - LAST_GEOCODE_AT
-        if elapsed < GEOCODE_DELAY_SECONDS:
-            time.sleep(GEOCODE_DELAY_SECONDS - elapsed)
-        response = requests.get(
-            "https://nominatim.openstreetmap.org/search",
-            params={"q": address, "format": "jsonv2", "limit": 1},
-            headers={"User-Agent": "where2go-scheduling-assistant/1.0"},
-            timeout=20,
-        )
-        LAST_GEOCODE_AT = time.time()
-        if response.status_code == 429:
-            wait = 5 * (attempt + 1)  # 5s, 10s, 15s
-            time.sleep(wait)
-            continue
-        response.raise_for_status()
-        results = response.json()
-        if not results:
-            # Don't cache failures — let the next sync try again
-            return {"formatted_address": address, "lat": None, "lng": None}
-        first = results[0]
-        result = {
-            "formatted_address": first.get("display_name", address),
-            "lat": float(first["lat"]),
-            "lng": float(first["lon"]),
-        }
-        cache[cache_key] = result
-        save_geocode_cache(cache)
-        return result
-    # All retries exhausted — don't cache, let the next sync try again
+
+    # Build a list of query variants to try in order:
+    # 1. The address as-is
+    # 2. Drop everything before the first comma (removes building names like "One Financial Center, 1 Congress St")
+    # 3. Just the first comma-separated segment (pure street number + name)
+    parts = [p.strip() for p in address.split(",")]
+    variants = [address]
+    if len(parts) >= 2:
+        variants.append(", ".join(parts[1:]))   # drop leading building name
+        variants.append(", ".join([parts[0]] + parts[-2:]))  # street + last two (city, state/zip)
+
+    for variant in variants:
+        for attempt in range(3):
+            try:
+                results = _nominatim_query(variant)
+            except requests.HTTPError as e:
+                if "429" in str(e):
+                    time.sleep(5 * (attempt + 1))
+                    continue
+                raise
+            if results:
+                first = results[0]
+                result = {
+                    "formatted_address": first.get("display_name", address),
+                    "lat": float(first["lat"]),
+                    "lng": float(first["lon"]),
+                }
+                cache[cache_key] = result
+                save_geocode_cache(cache)
+                return result
+            break  # no results for this variant, try next one
+
     return {"formatted_address": address, "lat": None, "lng": None}
 
 
@@ -2012,6 +2031,23 @@ def google_callback():
 @login_required
 def api_firms_cache():
     return jsonify(AIRTABLE_CACHE)
+
+
+@app.get("/api/unmapped-firms")
+@login_required
+def api_unmapped_firms():
+    firms = AIRTABLE_CACHE.get("firms", [])
+    unmapped = [
+        {"name": f["name"], "raw_address": f.get("raw_address", "")}
+        for f in firms
+        if f.get("lat") is None and f.get("raw_address")
+    ]
+    no_address = [
+        {"name": f["name"]}
+        for f in firms
+        if not f.get("raw_address")
+    ]
+    return jsonify({"not_geocoded": unmapped, "no_address": no_address})
 
 
 @app.get("/api/sync-airtable")
