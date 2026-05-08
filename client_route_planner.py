@@ -1422,8 +1422,10 @@ def strip_subunit(address: str) -> str:
 def geocode_address(address: str, cache: dict) -> dict:
     global LAST_GEOCODE_AT
     cache_key = normalize_address_key(address)
-    if cache_key in cache:
-        return cache[cache_key]
+    # Only use cached result if it has real coordinates — don't serve stale nulls
+    cached = cache.get(cache_key)
+    if cached and cached.get("lat") is not None:
+        return cached
     for attempt in range(4):
         elapsed = time.time() - LAST_GEOCODE_AT
         if elapsed < GEOCODE_DELAY_SECONDS:
@@ -1442,10 +1444,8 @@ def geocode_address(address: str, cache: dict) -> dict:
         response.raise_for_status()
         results = response.json()
         if not results:
-            result = {"formatted_address": address, "lat": None, "lng": None}
-            cache[cache_key] = result
-            save_geocode_cache(cache)
-            return result
+            # Don't cache failures — let the next sync try again
+            return {"formatted_address": address, "lat": None, "lng": None}
         first = results[0]
         result = {
             "formatted_address": first.get("display_name", address),
@@ -1455,11 +1455,8 @@ def geocode_address(address: str, cache: dict) -> dict:
         cache[cache_key] = result
         save_geocode_cache(cache)
         return result
-    # All retries exhausted — cache as unmappable so we don't keep hammering
-    result = {"formatted_address": address, "lat": None, "lng": None}
-    cache[cache_key] = result
-    save_geocode_cache(cache)
-    return result
+    # All retries exhausted — don't cache, let the next sync try again
+    return {"formatted_address": address, "lat": None, "lng": None}
 
 
 def airtable_headers(token: str) -> dict:
