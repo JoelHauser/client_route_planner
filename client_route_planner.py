@@ -24,10 +24,8 @@ except Exception:
     GoogleRequest = None
     build = None
 
-CACHE_FILE = "geocode_cache.json"
+CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "geocode_cache.json")
 GOOGLE_TOKEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "google_token.json")
-GEOCODE_DELAY_SECONDS = 1.1
-LAST_GEOCODE_AT = 0.0
 GOOGLE_SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
 
 APP_HTML = r"""
@@ -263,7 +261,7 @@ APP_HTML = r"""
       <div class="btn-row">
         <button class="ghost" id="googleConnectBtn">Connect Google Calendar</button>
       </div>
-      <div style="display:flex;align-items:center;gap:8px;">
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;">
         <span class="badge" id="syncBadge">Not synced</span>
         <span class="badge" id="calendarBadge">Calendar not connected</span>
       </div>
@@ -918,7 +916,13 @@ APP_HTML = r"""
       state.visits = data.sales_visits || [];
       const badge = document.getElementById('syncBadge');
       badge.className = 'badge green';
-      badge.innerHTML = '<span class="dot"></span> ' + state.firms.length + ' firms';
+      const mapped = state.firms.filter(f => f.lat != null && f.lng != null).length;
+      const noAddr = state.firms.filter(f => !f.raw_address).length;
+      const notGeocoded = state.firms.length - mapped - noAddr;
+      let badgeText = '<span class="dot"></span> ' + mapped + ' on map';
+      if (notGeocoded > 0) badgeText += ' · ' + notGeocoded + ' not mapped';
+      if (noAddr > 0) badgeText += ' · ' + noAddr + ' no address';
+      badge.innerHTML = badgeText;
       renderMapPins(state.firms);
       setStatus('Airtable synced.', true);
     } catch (err) {
@@ -1395,33 +1399,54 @@ def normalize_address_key(address: str) -> str:
     return " ".join(address.strip().lower().split())
 
 
-def geocode_address(address: str, cache: dict) -> dict:
-    global LAST_GEOCODE_AT
-    cache_key = normalize_address_key(address)
-    if cache_key in cache:
-        return cache[cache_key]
-    elapsed = time.time() - LAST_GEOCODE_AT
-    if elapsed < GEOCODE_DELAY_SECONDS:
-        time.sleep(GEOCODE_DELAY_SECONDS - elapsed)
-    response = requests.get(
-        "https://nominatim.openstreetmap.org/search",
-        params={"q": address, "format": "jsonv2", "limit": 1},
-        headers={"User-Agent": "where2go-scheduling-assistant/1.0"},
-        timeout=20,
+import re as _re
+
+def strip_subunit(address: str) -> str:
+    """Remove suite/floor/unit suffixes that confuse geocoders, keeping the street address."""
+    # Remove anything after a comma that looks like a suite/floor/unit
+    # e.g. "123 Main St, Suite 400, Boston MA" -> "123 Main St, Boston MA"
+    cleaned = _re.sub(
+        r",?\s*(?:suite|ste\.?|floor|fl\.?|unit|apt\.?|#)\s*[\w\-]+",
+        "",
+        address,
+        flags=_re.IGNORECASE,
     )
-    LAST_GEOCODE_AT = time.time()
+    # Also strip ordinal floor patterns like "3rd Floor" or "Floor 3" anywhere in the string
+    cleaned = _re.sub(
+        r"\b\d+(?:st|nd|rd|th)?\s+floor\b|\bfloor\s+\d+\b",
+        "",
+        cleaned,
+        flags=_re.IGNORECASE,
+    )
+    return " ".join(cleaned.split())
+
+
+def geocode_address(address: str, cache: dict) -> dict:
+    cache_key = normalize_address_key(address)
+    cached = cache.get(cache_key)
+    if cached and cached.get("lat") is not None:
+        return cached
+
+    api_key = os.getenv("GOOGLE_GEOCODING_KEY")
+    if not api_key:
+        return {"formatted_address": address, "lat": None, "lng": None}
+
+    response = requests.get(
+        "https://maps.googleapis.com/maps/api/geocode/json",
+        params={"address": strip_subunit(address), "components": "country:US", "key": api_key},
+        timeout=10,
+    )
     response.raise_for_status()
-    results = response.json()
-    if not results:
-        result = {"formatted_address": address, "lat": None, "lng": None}
-        cache[cache_key] = result
-        save_geocode_cache(cache)
-        return result
-    first = results[0]
+    data = response.json()
+
+    if data.get("status") != "OK" or not data.get("results"):
+        return {"formatted_address": address, "lat": None, "lng": None}
+
+    first = data["results"][0]
     result = {
-        "formatted_address": first.get("display_name", address),
-        "lat": float(first["lat"]),
-        "lng": float(first["lon"]),
+        "formatted_address": first.get("formatted_address", address),
+        "lat": first["geometry"]["location"]["lat"],
+        "lng": first["geometry"]["location"]["lng"],
     }
     cache[cache_key] = result
     save_geocode_cache(cache)
@@ -1474,16 +1499,33 @@ def sync_airtable_data() -> dict:
     visits_records = airtable_list_records(base_id, visits_table)
     cache = load_geocode_cache()
 
+    # Build a lookup of already-geocoded addresses from the in-memory cache so
+    # re-syncs don't re-geocode every firm from scratch (avoids timeout on large bases).
+    known_geo: dict[str, dict] = {}
+    for firm in AIRTABLE_CACHE.get("firms", []):
+        raw = firm.get("raw_address") or ""
+        if raw and firm.get("lat") is not None:
+            known_geo[normalize_address_key(raw)] = {
+                "formatted_address": firm["address"],
+                "lat": firm["lat"],
+                "lng": firm["lng"],
+            }
+
     firms = []
     for record in firms_records:
         fields = record.get("fields", {})
         name = as_text(fields.get(name_field))
         address = as_text(fields.get(address_field))
-        geo = geocode_address(address, cache) if address else {"formatted_address": "", "lat": None, "lng": None}
+        if address:
+            addr_key = normalize_address_key(address)
+            geocode_addr = strip_subunit(address)
+            geo = known_geo.get(addr_key) or geocode_address(geocode_addr, cache)
+        else:
+            geo = {"formatted_address": "", "lat": None, "lng": None}
         firms.append({
             "id": record.get("id"),
             "name": name,
-            "address": geo.get("formatted_address") or address,
+            "address": address,
             "raw_address": address,
             "neighborhood": as_text(fields.get(neighborhood_field)),
             "contact": as_text(fields.get(contact_field)),
@@ -1962,6 +2004,23 @@ def api_firms_cache():
     return jsonify(AIRTABLE_CACHE)
 
 
+@app.get("/api/unmapped-firms")
+@login_required
+def api_unmapped_firms():
+    firms = AIRTABLE_CACHE.get("firms", [])
+    unmapped = [
+        {"name": f["name"], "raw_address": f.get("raw_address", "")}
+        for f in firms
+        if f.get("lat") is None and f.get("raw_address")
+    ]
+    no_address = [
+        {"name": f["name"]}
+        for f in firms
+        if not f.get("raw_address")
+    ]
+    return jsonify({"not_geocoded": unmapped, "no_address": no_address})
+
+
 @app.get("/api/sync-airtable")
 @login_required
 def api_sync_airtable():
@@ -1995,7 +2054,7 @@ def api_geocode_address():
         address = (request.get_json(force=True) or {}).get("address", "").strip()
         if not address:
             return jsonify({"error": "Address is required."}), 400
-        result = geocode_address(address, load_geocode_cache())
+        result = geocode_address(strip_subunit(address), load_geocode_cache())
         if result.get("lat") is None:
             return jsonify({"error": "Could not find that address."}), 404
         return jsonify(result)
@@ -2038,6 +2097,20 @@ def api_optimize_route():
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
+
+def _background_sync_loop():
+    import threading
+    def loop():
+        while True:
+            time.sleep(12 * 60 * 60)
+            try:
+                sync_airtable_data()
+            except Exception:
+                pass
+    t = threading.Thread(target=loop, daemon=True)
+    t.start()
+
+_background_sync_loop()
 
 if __name__ == "__main__":
     app.run(debug=_dev_mode, host="127.0.0.1", port=5000)
