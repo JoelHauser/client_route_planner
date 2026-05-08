@@ -263,7 +263,7 @@ APP_HTML = r"""
       <div class="btn-row">
         <button class="ghost" id="googleConnectBtn">Connect Google Calendar</button>
       </div>
-      <div style="display:flex;align-items:center;gap:8px;">
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;">
         <span class="badge" id="syncBadge">Not synced</span>
         <span class="badge" id="calendarBadge">Calendar not connected</span>
       </div>
@@ -752,6 +752,7 @@ APP_HTML = r"""
     restoreCache();
     refreshCalendarDay();
     syncAirtable();
+    setInterval(syncAirtable, 12 * 60 * 60 * 1000); // auto-sync every 12 hours
   }
 
   const STOP_COLORS = ['#e53935','#fb8c00','#43a047','#1e88e5','#8e24aa','#00acc1','#d81b60','#5c6bc0'];
