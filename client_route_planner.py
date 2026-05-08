@@ -26,8 +26,6 @@ except Exception:
 
 CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "geocode_cache.json")
 GOOGLE_TOKEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "google_token.json")
-GEOCODE_DELAY_SECONDS = 1.5
-LAST_GEOCODE_AT = 0.0
 GOOGLE_SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
 
 APP_HTML = r"""
@@ -1423,62 +1421,36 @@ def strip_subunit(address: str) -> str:
     return " ".join(cleaned.split())
 
 
-def _nominatim_query(address: str) -> list:
-    """Single Nominatim request with rate limiting. Returns results list or raises."""
-    global LAST_GEOCODE_AT
-    elapsed = time.time() - LAST_GEOCODE_AT
-    if elapsed < GEOCODE_DELAY_SECONDS:
-        time.sleep(GEOCODE_DELAY_SECONDS - elapsed)
-    response = requests.get(
-        "https://nominatim.openstreetmap.org/search",
-        params={"q": address, "format": "jsonv2", "limit": 1, "countrycodes": "us"},
-        headers={"User-Agent": "where2go-scheduling-assistant/1.0"},
-        timeout=20,
-    )
-    LAST_GEOCODE_AT = time.time()
-    if response.status_code == 429:
-        raise requests.HTTPError("429")
-    response.raise_for_status()
-    return response.json()
-
-
 def geocode_address(address: str, cache: dict) -> dict:
     cache_key = normalize_address_key(address)
     cached = cache.get(cache_key)
     if cached and cached.get("lat") is not None:
         return cached
 
-    # Always try the full address first.
-    # Only add a fallback variant if the first comma-segment looks like a building
-    # name (doesn't start with a digit) — e.g. "One Financial Center, 1 Congress St…"
-    # In that case try again without the leading building name.
-    parts = [p.strip() for p in address.split(",")]
-    variants = [address]
-    if len(parts) >= 2 and parts[0] and not parts[0][0].isdigit():
-        variants.append(", ".join(parts[1:]))
+    api_key = os.getenv("GOOGLE_GEOCODING_KEY")
+    if not api_key:
+        return {"formatted_address": address, "lat": None, "lng": None}
 
-    for variant in variants:
-        for attempt in range(3):
-            try:
-                results = _nominatim_query(variant)
-            except requests.HTTPError as e:
-                if "429" in str(e):
-                    time.sleep(5 * (attempt + 1))
-                    continue
-                raise
-            if results:
-                first = results[0]
-                result = {
-                    "formatted_address": first.get("display_name", address),
-                    "lat": float(first["lat"]),
-                    "lng": float(first["lon"]),
-                }
-                cache[cache_key] = result
-                save_geocode_cache(cache)
-                return result
-            break  # no results for this variant, try next one
+    response = requests.get(
+        "https://maps.googleapis.com/maps/api/geocode/json",
+        params={"address": strip_subunit(address), "components": "country:US", "key": api_key},
+        timeout=10,
+    )
+    response.raise_for_status()
+    data = response.json()
 
-    return {"formatted_address": address, "lat": None, "lng": None}
+    if data.get("status") != "OK" or not data.get("results"):
+        return {"formatted_address": address, "lat": None, "lng": None}
+
+    first = data["results"][0]
+    result = {
+        "formatted_address": first.get("formatted_address", address),
+        "lat": first["geometry"]["location"]["lat"],
+        "lng": first["geometry"]["location"]["lng"],
+    }
+    cache[cache_key] = result
+    save_geocode_cache(cache)
+    return result
 
 
 def airtable_headers(token: str) -> dict:
