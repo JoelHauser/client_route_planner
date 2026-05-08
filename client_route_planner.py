@@ -1474,12 +1474,28 @@ def sync_airtable_data() -> dict:
     visits_records = airtable_list_records(base_id, visits_table)
     cache = load_geocode_cache()
 
+    # Build a lookup of already-geocoded addresses from the in-memory cache so
+    # re-syncs don't re-geocode every firm from scratch (avoids timeout on large bases).
+    known_geo: dict[str, dict] = {}
+    for firm in AIRTABLE_CACHE.get("firms", []):
+        raw = firm.get("raw_address") or ""
+        if raw and firm.get("lat") is not None:
+            known_geo[normalize_address_key(raw)] = {
+                "formatted_address": firm["address"],
+                "lat": firm["lat"],
+                "lng": firm["lng"],
+            }
+
     firms = []
     for record in firms_records:
         fields = record.get("fields", {})
         name = as_text(fields.get(name_field))
         address = as_text(fields.get(address_field))
-        geo = geocode_address(address, cache) if address else {"formatted_address": "", "lat": None, "lng": None}
+        if address:
+            addr_key = normalize_address_key(address)
+            geo = known_geo.get(addr_key) or geocode_address(address, cache)
+        else:
+            geo = {"formatted_address": "", "lat": None, "lng": None}
         firms.append({
             "id": record.get("id"),
             "name": name,
