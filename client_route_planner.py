@@ -26,7 +26,7 @@ except Exception:
 
 CACHE_FILE = "geocode_cache.json"
 GOOGLE_TOKEN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "google_token.json")
-GEOCODE_DELAY_SECONDS = 1.1
+GEOCODE_DELAY_SECONDS = 1.5
 LAST_GEOCODE_AT = 0.0
 GOOGLE_SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
 
@@ -1424,29 +1424,39 @@ def geocode_address(address: str, cache: dict) -> dict:
     cache_key = normalize_address_key(address)
     if cache_key in cache:
         return cache[cache_key]
-    elapsed = time.time() - LAST_GEOCODE_AT
-    if elapsed < GEOCODE_DELAY_SECONDS:
-        time.sleep(GEOCODE_DELAY_SECONDS - elapsed)
-    response = requests.get(
-        "https://nominatim.openstreetmap.org/search",
-        params={"q": address, "format": "jsonv2", "limit": 1},
-        headers={"User-Agent": "where2go-scheduling-assistant/1.0"},
-        timeout=20,
-    )
-    LAST_GEOCODE_AT = time.time()
-    response.raise_for_status()
-    results = response.json()
-    if not results:
-        result = {"formatted_address": address, "lat": None, "lng": None}
+    for attempt in range(4):
+        elapsed = time.time() - LAST_GEOCODE_AT
+        if elapsed < GEOCODE_DELAY_SECONDS:
+            time.sleep(GEOCODE_DELAY_SECONDS - elapsed)
+        response = requests.get(
+            "https://nominatim.openstreetmap.org/search",
+            params={"q": address, "format": "jsonv2", "limit": 1},
+            headers={"User-Agent": "where2go-scheduling-assistant/1.0"},
+            timeout=20,
+        )
+        LAST_GEOCODE_AT = time.time()
+        if response.status_code == 429:
+            wait = 5 * (attempt + 1)  # 5s, 10s, 15s
+            time.sleep(wait)
+            continue
+        response.raise_for_status()
+        results = response.json()
+        if not results:
+            result = {"formatted_address": address, "lat": None, "lng": None}
+            cache[cache_key] = result
+            save_geocode_cache(cache)
+            return result
+        first = results[0]
+        result = {
+            "formatted_address": first.get("display_name", address),
+            "lat": float(first["lat"]),
+            "lng": float(first["lon"]),
+        }
         cache[cache_key] = result
         save_geocode_cache(cache)
         return result
-    first = results[0]
-    result = {
-        "formatted_address": first.get("display_name", address),
-        "lat": float(first["lat"]),
-        "lng": float(first["lon"]),
-    }
+    # All retries exhausted — cache as unmappable so we don't keep hammering
+    result = {"formatted_address": address, "lat": None, "lng": None}
     cache[cache_key] = result
     save_geocode_cache(cache)
     return result
