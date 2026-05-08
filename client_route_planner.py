@@ -1448,15 +1448,14 @@ def geocode_address(address: str, cache: dict) -> dict:
     if cached and cached.get("lat") is not None:
         return cached
 
-    # Build a list of query variants to try in order:
-    # 1. The address as-is
-    # 2. Drop everything before the first comma (removes building names like "One Financial Center, 1 Congress St")
-    # 3. Just the first comma-separated segment (pure street number + name)
+    # Always try the full address first.
+    # Only add a fallback variant if the first comma-segment looks like a building
+    # name (doesn't start with a digit) — e.g. "One Financial Center, 1 Congress St…"
+    # In that case try again without the leading building name.
     parts = [p.strip() for p in address.split(",")]
     variants = [address]
-    if len(parts) >= 2:
-        variants.append(", ".join(parts[1:]))   # drop leading building name
-        variants.append(", ".join([parts[0]] + parts[-2:]))  # street + last two (city, state/zip)
+    if len(parts) >= 2 and parts[0] and not parts[0][0].isdigit():
+        variants.append(", ".join(parts[1:]))
 
     for variant in variants:
         for attempt in range(3):
