@@ -918,7 +918,9 @@ APP_HTML = r"""
       state.visits = data.sales_visits || [];
       const badge = document.getElementById('syncBadge');
       badge.className = 'badge green';
-      badge.innerHTML = '<span class="dot"></span> ' + state.firms.length + ' firms';
+      const mapped = state.firms.filter(f => f.lat != null && f.lng != null).length;
+      const unmapped = state.firms.length - mapped;
+      badge.innerHTML = '<span class="dot"></span> ' + mapped + ' on map' + (unmapped ? ' · ' + unmapped + ' no address' : '');
       renderMapPins(state.firms);
       setStatus('Airtable synced.', true);
     } catch (err) {
