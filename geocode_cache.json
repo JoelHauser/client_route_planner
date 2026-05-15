@@ -708,5 +708,10 @@
     "formatted_address": "15 Walnut St, Wellesley, MA 02481, USA",
     "lat": 42.3260373,
     "lng": -71.2533937
+  },
+  "microsoft teams meeting": {
+    "formatted_address": "United States",
+    "lat": 38.7945952,
+    "lng": -106.5348379
   }
 }
