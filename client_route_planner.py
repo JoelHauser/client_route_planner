@@ -287,11 +287,12 @@ APP_HTML = r"""
             <option value="outreach_first">Outreach-first</option>
           </select>
         </div>
-        <div>
-          <label for="neighborhoodFilter">Neighborhood</label>
-          <input id="neighborhoodFilter" type="text" placeholder="Seaport, Back Bay…" />
+        <div class="full" style="position:relative;">
+          <label>Firms</label>
+          <input id="firmSearch" class="add-stop-input" type="text" placeholder="Search and add a firm…" autocomplete="off" style="font-size:13px;padding:9px 12px;border-radius:var(--radius-md);border:1px solid var(--line-strong);">
+          <div id="firmSearchSuggestions" class="custom-name-suggestions"></div>
         </div>
-        <div>
+        <div class="full">
           <label for="manualStartInput">Start location</label>
           <input id="manualStartInput" type="text" placeholder="Address…" />
         </div>
@@ -566,6 +567,36 @@ APP_HTML = r"""
     }
   }
 
+  function rebuildSummaryText() {
+    const dateVal = document.getElementById('planDate').value;
+    const startVal = document.getElementById('startTimeSelect').value;
+    if (!dateVal || !state.suggestedStops.length) { renderSummaryPane(); return; }
+    const dt = new Date(dateVal + 'T12:00:00');
+    const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    const [sh, smRaw] = startVal.split(':').map(Number);
+    const sm = isNaN(smRaw) ? 0 : smRaw;
+    const sfx = sh < 12 ? 'AM' : 'PM';
+    let dh = sh <= 12 ? sh : sh - 12; if (dh === 0) dh = 12;
+    const lines = [
+      days[dt.getDay()] + ', ' + months[dt.getMonth()] + ' ' + dt.getDate(),
+      'Starting at ' + dh + ':' + String(sm).padStart(2,'0') + ' ' + sfx,
+    ];
+    if (state.suggestedStops.length) {
+      lines.push('Add:');
+      state.suggestedStops.forEach((firm, idx) => {
+        const tot = sh * 60 + sm + idx * 45;
+        const fh = Math.floor(tot / 60), fm = tot % 60;
+        const fs = fh < 12 ? 'AM' : 'PM';
+        let fdh = fh <= 12 ? fh : fh - 12; if (fdh === 0) fdh = 12;
+        const t = fdh + ':' + String(fm).padStart(2,'0') + ' ' + fs;
+        lines.push(firm.quick_hello ? '- stop by ' + firm.name + ' around ' + t : '- ' + firm.name + ' at ' + t);
+      });
+    }
+    state.summaryText = lines.join('\n');
+    if (state.view === 'summary') renderSummaryPane();
+  }
+
   function ignoreStop(idx) {
     closeStopCtxMenu();
     state.suggestedStops.splice(idx, 1);
@@ -573,6 +604,7 @@ APP_HTML = r"""
     hideAddStopPanel();
     renderSuggestedStops();
     renderMapPins(state.firms, true);  // preserve zoom when removing a stop
+    rebuildSummaryText();
   }
 
   function showAddFirmPanel(afterIdx) {
@@ -640,6 +672,7 @@ APP_HTML = r"""
     hideAddStopPanel();
     renderSuggestedStops();
     renderMapPins(state.firms, true);  // preserve zoom when adding a stop
+    rebuildSummaryText();
   }
 
   async function addCustomStop() {
@@ -739,7 +772,7 @@ APP_HTML = r"""
   }
 
   function initialize() {
-    state.map = L.map('map', { scrollWheelZoom: true, wheelDebounceTime: 60, wheelPxPerZoomLevel: 80 }).setView([42.3601, -71.0589], 8);
+    state.map = L.map('map', { scrollWheelZoom: true, wheelDebounceTime: 0, wheelPxPerZoomLevel: 120, zoomSnap: 0.25 }).setView([42.3601, -71.0589], 8);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
     }).addTo(state.map);
@@ -752,7 +785,11 @@ APP_HTML = r"""
     syncAirtable();
   }
 
-  const STOP_COLORS = ['#e53935','#fb8c00','#43a047','#1e88e5','#8e24aa','#00acc1','#d81b60','#5c6bc0'];
+  const STOP_COLORS = [
+    '#e53935','#fb8c00','#43a047','#1e88e5','#8e24aa','#00acc1',
+    '#d81b60','#5c6bc0','#00897b','#f4511e','#7cb342','#039be5',
+    '#ff7043','#ab47bc','#26a69a','#ec407a'
+  ];
 
   function stopColor(idx) { return STOP_COLORS[idx % STOP_COLORS.length]; }
 
@@ -760,38 +797,57 @@ APP_HTML = r"""
 
   function renderMapPins(firms, skipFit) {
     clearMarkers();
-    // build an index from firm id → suggested stop index for color lookup
     const stopIndexMap = {};
     state.suggestedStops.forEach((s, i) => { if (s.id) stopIndexMap[s.id] = i; });
 
-    const bounds = [];
+    // Build a flat list of all pins
+    const pins = [];
     firms.forEach(firm => {
       if (firm.lat == null || firm.lng == null) return;
       const stopIdx = firm.id != null ? stopIndexMap[firm.id] : undefined;
-      const isSuggested = stopIdx !== undefined;
+      pins.push({ firm, isSuggested: stopIdx !== undefined, stopIdx, lat: firm.lat, lng: firm.lng });
+    });
+    state.suggestedStops.forEach((s, i) => {
+      if (s.id && s.id.startsWith('custom_') && s.lat != null && s.lng != null)
+        pins.push({ firm: s, isSuggested: true, stopIdx: i, lat: s.lat, lng: s.lng });
+    });
+
+    // Group by rounded coords (~11m grid) to detect co-located firms
+    const groups = {};
+    pins.forEach((pin, idx) => {
+      const key = pin.lat.toFixed(4) + ',' + pin.lng.toFixed(4);
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(idx);
+    });
+
+    // Spread co-located pins in a small circle so they sit side by side
+    const offsets = {};
+    Object.values(groups).forEach(indices => {
+      if (indices.length <= 1) return;
+      const r = 0.00025; // ~25 metres
+      indices.forEach((pinIdx, i) => {
+        const angle = (2 * Math.PI * i) / indices.length - Math.PI / 2;
+        offsets[pinIdx] = {
+          lat: pins[pinIdx].lat + r * Math.cos(angle),
+          lng: pins[pinIdx].lng + r * Math.sin(angle),
+        };
+      });
+    });
+
+    const bounds = [];
+    pins.forEach((pin, idx) => {
+      const { firm, isSuggested, stopIdx } = pin;
       const color = isSuggested ? stopColor(stopIdx) : '#2563eb';
-      const marker = L.circleMarker([firm.lat, firm.lng], {
+      const pos = offsets[idx] || { lat: pin.lat, lng: pin.lng };
+      const marker = L.circleMarker([pos.lat, pos.lng], {
         radius: isSuggested ? 12 : 6,
         fillColor: color,
         color: '#ffffff', weight: isSuggested ? 3 : 2, opacity: 1, fillOpacity: 1
       }).addTo(state.map);
       const label = isSuggested ? ` <span style="background:${color};color:#fff;border-radius:999px;padding:1px 6px;font-size:10px;font-weight:700;">${stopIdx + 1}</span>` : '';
-      marker.bindPopup(`<strong>${esc(firm.name)}</strong>${label}<br>${esc(firm.address)}<br><span style="color:#6b7280">${esc(firm.neighborhood||'')}</span>`);
+      marker.bindPopup(`<strong>${esc(firm.name)}</strong>${label}<br>${esc(firm.address || '')}<br><span style="color:#6b7280">${esc(firm.neighborhood||'')}</span>`);
       state.markers.push(marker);
-      bounds.push([firm.lat, firm.lng]);
-    });
-
-    // also pin any custom stops (id starts with 'custom_') that may not be in firms list
-    state.suggestedStops.forEach((s, i) => {
-      if (s.id && s.id.startsWith('custom_') && s.lat != null && s.lng != null) {
-        const color = stopColor(i);
-        const marker = L.circleMarker([s.lat, s.lng], {
-          radius: 12, fillColor: color, color: '#ffffff', weight: 3, opacity: 1, fillOpacity: 1
-        }).addTo(state.map);
-        marker.bindPopup(`<strong>${esc(s.name)}</strong> <span style="background:${color};color:#fff;border-radius:999px;padding:1px 6px;font-size:10px;font-weight:700;">${i + 1}</span><br>${esc(s.address || '')}`);
-        state.markers.push(marker);
-        bounds.push([s.lat, s.lng]);
-      }
+      bounds.push([pin.lat, pin.lng]);
     });
 
     if (state.currentLocation) bounds.push([state.currentLocation.lat, state.currentLocation.lng]);
@@ -1035,7 +1091,7 @@ APP_HTML = r"""
       const payload = {
         date: document.getElementById('planDate').value,
         mode: document.getElementById('modeSelect').value,
-        neighborhood: document.getElementById('neighborhoodFilter').value.trim(),
+        neighborhood: '',
         current_location: state.currentLocation,
         start_time: document.getElementById('startTimeSelect').value,
       };
@@ -1234,6 +1290,43 @@ APP_HTML = r"""
     nameInput.addEventListener('blur', function() {
       setTimeout(() => { sugBox.classList.remove('open'); }, 150);
     });
+  })();
+
+  // ── Firms search (controls panel) ──
+  (function() {
+    const input = document.getElementById('firmSearch');
+    const sugBox = document.getElementById('firmSearchSuggestions');
+
+    function renderFirmSuggestions(q) {
+      if (!q) { sugBox.classList.remove('open'); sugBox.innerHTML = ''; return; }
+      const existing = new Set(state.suggestedStops.map(s => s.id).filter(Boolean));
+      const ql = q.toLowerCase();
+      const hits = state.firms.filter(f =>
+        !existing.has(f.id) &&
+        ((f.name || '').toLowerCase().includes(ql) || (f.address || '').toLowerCase().includes(ql))
+      ).slice(0, 8);
+      if (!hits.length) { sugBox.classList.remove('open'); sugBox.innerHTML = ''; return; }
+      sugBox.innerHTML = hits.map(f => `
+        <div class="custom-name-suggestion" data-firm-id="${esc(f.id)}">
+          <div>${esc(f.name)}</div>
+          ${f.address ? `<div class="csug-addr">${esc(f.address)}</div>` : ''}
+        </div>
+      `).join('');
+      sugBox.classList.add('open');
+      sugBox.querySelectorAll('.custom-name-suggestion').forEach(el => {
+        el.addEventListener('mousedown', function(e) {
+          e.preventDefault();
+          const firm = state.firms.find(f => f.id === el.dataset.firmId);
+          if (firm) insertStop(Object.assign({}, firm, { reason: 'Added manually' }), state.suggestedStops.length - 1);
+          input.value = '';
+          sugBox.classList.remove('open');
+          sugBox.innerHTML = '';
+        });
+      });
+    }
+
+    input.addEventListener('input', function() { renderFirmSuggestions(this.value.trim()); });
+    input.addEventListener('blur', function() { setTimeout(() => { sugBox.classList.remove('open'); }, 150); });
   })();
 
   // ── Dark mode ──
