@@ -287,11 +287,12 @@ APP_HTML = r"""
             <option value="outreach_first">Outreach-first</option>
           </select>
         </div>
-        <div>
-          <label for="neighborhoodFilter">Neighborhood</label>
-          <input id="neighborhoodFilter" type="text" placeholder="Seaport, Back Bay…" />
+        <div class="full" style="position:relative;">
+          <label>Firms</label>
+          <input id="firmSearch" class="add-stop-input" type="text" placeholder="Search and add a firm…" autocomplete="off" style="font-size:13px;padding:9px 12px;border-radius:var(--radius-md);border:1px solid var(--line-strong);">
+          <div id="firmSearchSuggestions" class="custom-name-suggestions"></div>
         </div>
-        <div>
+        <div class="full">
           <label for="manualStartInput">Start location</label>
           <input id="manualStartInput" type="text" placeholder="Address…" />
         </div>
@@ -566,6 +567,36 @@ APP_HTML = r"""
     }
   }
 
+  function rebuildSummaryText() {
+    const dateVal = document.getElementById('planDate').value;
+    const startVal = document.getElementById('startTimeSelect').value;
+    if (!dateVal || !state.suggestedStops.length) { renderSummaryPane(); return; }
+    const dt = new Date(dateVal + 'T12:00:00');
+    const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    const [sh, smRaw] = startVal.split(':').map(Number);
+    const sm = isNaN(smRaw) ? 0 : smRaw;
+    const sfx = sh < 12 ? 'AM' : 'PM';
+    let dh = sh <= 12 ? sh : sh - 12; if (dh === 0) dh = 12;
+    const lines = [
+      days[dt.getDay()] + ', ' + months[dt.getMonth()] + ' ' + dt.getDate(),
+      'Starting at ' + dh + ':' + String(sm).padStart(2,'0') + ' ' + sfx,
+    ];
+    if (state.suggestedStops.length) {
+      lines.push('Add:');
+      state.suggestedStops.forEach((firm, idx) => {
+        const tot = sh * 60 + sm + idx * 45;
+        const fh = Math.floor(tot / 60), fm = tot % 60;
+        const fs = fh < 12 ? 'AM' : 'PM';
+        let fdh = fh <= 12 ? fh : fh - 12; if (fdh === 0) fdh = 12;
+        const t = fdh + ':' + String(fm).padStart(2,'0') + ' ' + fs;
+        lines.push(firm.quick_hello ? '- stop by ' + firm.name + ' around ' + t : '- ' + firm.name + ' at ' + t);
+      });
+    }
+    state.summaryText = lines.join('\n');
+    if (state.view === 'summary') renderSummaryPane();
+  }
+
   function ignoreStop(idx) {
     closeStopCtxMenu();
     state.suggestedStops.splice(idx, 1);
@@ -573,6 +604,7 @@ APP_HTML = r"""
     hideAddStopPanel();
     renderSuggestedStops();
     renderMapPins(state.firms, true);  // preserve zoom when removing a stop
+    rebuildSummaryText();
   }
 
   function showAddFirmPanel(afterIdx) {
@@ -640,6 +672,7 @@ APP_HTML = r"""
     hideAddStopPanel();
     renderSuggestedStops();
     renderMapPins(state.firms, true);  // preserve zoom when adding a stop
+    rebuildSummaryText();
   }
 
   async function addCustomStop() {
@@ -739,7 +772,7 @@ APP_HTML = r"""
   }
 
   function initialize() {
-    state.map = L.map('map', { scrollWheelZoom: true, wheelDebounceTime: 60, wheelPxPerZoomLevel: 80 }).setView([42.3601, -71.0589], 8);
+    state.map = L.map('map', { scrollWheelZoom: true, wheelDebounceTime: 0, wheelPxPerZoomLevel: 120, zoomSnap: 0.25 }).setView([42.3601, -71.0589], 8);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
     }).addTo(state.map);
@@ -1058,7 +1091,7 @@ APP_HTML = r"""
       const payload = {
         date: document.getElementById('planDate').value,
         mode: document.getElementById('modeSelect').value,
-        neighborhood: document.getElementById('neighborhoodFilter').value.trim(),
+        neighborhood: '',
         current_location: state.currentLocation,
         start_time: document.getElementById('startTimeSelect').value,
       };
@@ -1257,6 +1290,43 @@ APP_HTML = r"""
     nameInput.addEventListener('blur', function() {
       setTimeout(() => { sugBox.classList.remove('open'); }, 150);
     });
+  })();
+
+  // ── Firms search (controls panel) ──
+  (function() {
+    const input = document.getElementById('firmSearch');
+    const sugBox = document.getElementById('firmSearchSuggestions');
+
+    function renderFirmSuggestions(q) {
+      if (!q) { sugBox.classList.remove('open'); sugBox.innerHTML = ''; return; }
+      const existing = new Set(state.suggestedStops.map(s => s.id).filter(Boolean));
+      const ql = q.toLowerCase();
+      const hits = state.firms.filter(f =>
+        !existing.has(f.id) &&
+        ((f.name || '').toLowerCase().includes(ql) || (f.address || '').toLowerCase().includes(ql))
+      ).slice(0, 8);
+      if (!hits.length) { sugBox.classList.remove('open'); sugBox.innerHTML = ''; return; }
+      sugBox.innerHTML = hits.map(f => `
+        <div class="custom-name-suggestion" data-firm-id="${esc(f.id)}">
+          <div>${esc(f.name)}</div>
+          ${f.address ? `<div class="csug-addr">${esc(f.address)}</div>` : ''}
+        </div>
+      `).join('');
+      sugBox.classList.add('open');
+      sugBox.querySelectorAll('.custom-name-suggestion').forEach(el => {
+        el.addEventListener('mousedown', function(e) {
+          e.preventDefault();
+          const firm = state.firms.find(f => f.id === el.dataset.firmId);
+          if (firm) insertStop(Object.assign({}, firm, { reason: 'Added manually' }), state.suggestedStops.length - 1);
+          input.value = '';
+          sugBox.classList.remove('open');
+          sugBox.innerHTML = '';
+        });
+      });
+    }
+
+    input.addEventListener('input', function() { renderFirmSuggestions(this.value.trim()); });
+    input.addEventListener('blur', function() { setTimeout(() => { sugBox.classList.remove('open'); }, 150); });
   })();
 
   // ── Dark mode ──
