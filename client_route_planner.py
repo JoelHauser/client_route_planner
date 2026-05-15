@@ -80,7 +80,7 @@ APP_HTML = r"""
     /* ── LAYOUT ── */
     body { font-family: Inter, system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 13px; line-height: 1.5; height: 100vh; overflow: hidden; }
     .shell { display: grid; grid-template-columns: 340px 14px 1fr; grid-template-rows: calc(100vh - 34px); column-gap: 0; row-gap: 0; padding: 14px 14px 20px; height: 100vh; }
-    .left { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+    .left { display: flex; flex-direction: column; gap: 0; min-height: 0; }
     .right { display: grid; grid-template-rows: 1fr 14px 310px; gap: 0; min-height: 0; }
     /* resize handles */
     .h-resizer { display: flex; align-items: center; justify-content: center; cursor: col-resize; z-index: 10; user-select: none; }
@@ -91,8 +91,11 @@ APP_HTML = r"""
     .v-resizer:hover::after, .v-resizer.dragging::after { background: var(--muted); transform: scaleY(1.5); }
     /* panels */
     .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); }
-    .controls-panel { flex-shrink: 0; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; }
-    .calendar-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+    .controls-panel { flex-shrink: 0; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; margin-bottom: 0; }
+    .calendar-panel { flex: 1; min-height: 80px; display: flex; flex-direction: column; overflow: hidden; }
+    .left-v-resizer { flex-shrink: 0; height: 14px; display: flex; align-items: center; justify-content: center; cursor: row-resize; z-index: 10; user-select: none; }
+    .left-v-resizer::after { content: ''; height: 4px; width: 44px; background: var(--line-strong); border-radius: 2px; transition: background .12s, transform .12s; }
+    .left-v-resizer:hover::after, .left-v-resizer.dragging::after { background: var(--muted); transform: scaleY(1.5); }
     .map-panel { overflow: hidden; }
     #map { width: 100%; height: 100%; }
     .results-panel { display: grid; grid-template-columns: 1fr 1fr; min-height: 0; overflow: hidden; }
@@ -196,7 +199,7 @@ APP_HTML = r"""
         overflow: hidden;
       }
       .left, .right { display: contents; }
-      .h-resizer, .v-resizer { display: none; }
+      .h-resizer, .v-resizer, .left-v-resizer { display: none; }
       .panel {
         display: none;
         height: calc(100dvh - 58px);
@@ -310,6 +313,8 @@ APP_HTML = r"""
         <span id="statusText">Ready.</span>
       </div>
     </div>
+
+    <div class="left-v-resizer" id="leftVResizer"></div>
 
     <!-- Calendar panel (scrollable, fills remaining height) -->
     <div id="panel-calendar" class="panel calendar-panel">
@@ -717,6 +722,33 @@ APP_HTML = r"""
   function initResizers() {
     const shell = document.querySelector('.shell');
     const rightPanel = document.querySelector('.right');
+
+    // ── Left column: controls ↕ calendar ──
+    const leftVResizer = document.getElementById('leftVResizer');
+    leftVResizer.addEventListener('mousedown', function(e) {
+      e.preventDefault();
+      leftVResizer.classList.add('dragging');
+      document.body.style.cursor = 'row-resize';
+      document.body.style.userSelect = 'none';
+      const planPanel = document.getElementById('panel-plan');
+      const leftCol = document.querySelector('.left');
+      const onMove = function(e) {
+        const rect = leftCol.getBoundingClientRect();
+        let h = e.clientY - rect.top;
+        h = Math.max(180, Math.min(rect.height - 100, h));
+        planPanel.style.height = h + 'px';
+        planPanel.style.flexShrink = '0';
+      };
+      const onUp = function() {
+        leftVResizer.classList.remove('dragging');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
 
     // ── Horizontal (left ↔ right) ──
     const hResizer = document.getElementById('hResizer');
