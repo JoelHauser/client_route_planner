@@ -1,0 +1,38 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Where2Go — Sign in</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Inter, system-ui, sans-serif; background: #f4f4f5; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 16px; padding: 36px 32px; width: 100%; max-width: 360px; }
+    .logo { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 4px; }
+    .sub { font-size: 13px; color: #6b7280; margin-bottom: 28px; }
+    label { font-size: 12px; color: #6b7280; display: block; margin-bottom: 4px; }
+    input { width: 100%; border: 1px solid #d1d5db; border-radius: 10px; padding: 9px 12px; font: inherit; font-size: 13px; outline: none; margin-bottom: 14px; }
+    input:focus { border-color: #6b7280; }
+    button { width: 100%; background: #111827; color: #fff; border: none; border-radius: 10px; padding: 10px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; margin-top: 4px; }
+    button:hover { opacity: .88; }
+    .error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; border-radius: 10px; padding: 9px 12px; font-size: 13px; margin-bottom: 16px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">Where2Go</div>
+    <div class="sub">Scheduling assistant — sign in to continue</div>
+    {% if error %}
+    <div class="error">{{ error }}</div>
+    {% endif %}
+    <form method="POST" action="/login">
+      <label for="username">Username</label>
+      <input id="username" name="username" type="text" autocomplete="username" required />
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required />
+      <button type="submit">Sign in</button>
+    </form>
+  </div>
+</body>
+</html>
