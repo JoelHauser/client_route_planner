@@ -752,7 +752,11 @@ APP_HTML = r"""
     syncAirtable();
   }
 
-  const STOP_COLORS = ['#e53935','#fb8c00','#43a047','#1e88e5','#8e24aa','#00acc1','#d81b60','#5c6bc0'];
+  const STOP_COLORS = [
+    '#e53935','#fb8c00','#43a047','#1e88e5','#8e24aa','#00acc1',
+    '#d81b60','#5c6bc0','#00897b','#f4511e','#7cb342','#039be5',
+    '#ff7043','#ab47bc','#26a69a','#ec407a'
+  ];
 
   function stopColor(idx) { return STOP_COLORS[idx % STOP_COLORS.length]; }
 
@@ -760,38 +764,57 @@ APP_HTML = r"""
 
   function renderMapPins(firms, skipFit) {
     clearMarkers();
-    // build an index from firm id → suggested stop index for color lookup
     const stopIndexMap = {};
     state.suggestedStops.forEach((s, i) => { if (s.id) stopIndexMap[s.id] = i; });
 
-    const bounds = [];
+    // Build a flat list of all pins
+    const pins = [];
     firms.forEach(firm => {
       if (firm.lat == null || firm.lng == null) return;
       const stopIdx = firm.id != null ? stopIndexMap[firm.id] : undefined;
-      const isSuggested = stopIdx !== undefined;
+      pins.push({ firm, isSuggested: stopIdx !== undefined, stopIdx, lat: firm.lat, lng: firm.lng });
+    });
+    state.suggestedStops.forEach((s, i) => {
+      if (s.id && s.id.startsWith('custom_') && s.lat != null && s.lng != null)
+        pins.push({ firm: s, isSuggested: true, stopIdx: i, lat: s.lat, lng: s.lng });
+    });
+
+    // Group by rounded coords (~11m grid) to detect co-located firms
+    const groups = {};
+    pins.forEach((pin, idx) => {
+      const key = pin.lat.toFixed(4) + ',' + pin.lng.toFixed(4);
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(idx);
+    });
+
+    // Spread co-located pins in a small circle so they sit side by side
+    const offsets = {};
+    Object.values(groups).forEach(indices => {
+      if (indices.length <= 1) return;
+      const r = 0.00025; // ~25 metres
+      indices.forEach((pinIdx, i) => {
+        const angle = (2 * Math.PI * i) / indices.length - Math.PI / 2;
+        offsets[pinIdx] = {
+          lat: pins[pinIdx].lat + r * Math.cos(angle),
+          lng: pins[pinIdx].lng + r * Math.sin(angle),
+        };
+      });
+    });
+
+    const bounds = [];
+    pins.forEach((pin, idx) => {
+      const { firm, isSuggested, stopIdx } = pin;
       const color = isSuggested ? stopColor(stopIdx) : '#2563eb';
-      const marker = L.circleMarker([firm.lat, firm.lng], {
+      const pos = offsets[idx] || { lat: pin.lat, lng: pin.lng };
+      const marker = L.circleMarker([pos.lat, pos.lng], {
         radius: isSuggested ? 12 : 6,
         fillColor: color,
         color: '#ffffff', weight: isSuggested ? 3 : 2, opacity: 1, fillOpacity: 1
       }).addTo(state.map);
       const label = isSuggested ? ` <span style="background:${color};color:#fff;border-radius:999px;padding:1px 6px;font-size:10px;font-weight:700;">${stopIdx + 1}</span>` : '';
-      marker.bindPopup(`<strong>${esc(firm.name)}</strong>${label}<br>${esc(firm.address)}<br><span style="color:#6b7280">${esc(firm.neighborhood||'')}</span>`);
+      marker.bindPopup(`<strong>${esc(firm.name)}</strong>${label}<br>${esc(firm.address || '')}<br><span style="color:#6b7280">${esc(firm.neighborhood||'')}</span>`);
       state.markers.push(marker);
-      bounds.push([firm.lat, firm.lng]);
-    });
-
-    // also pin any custom stops (id starts with 'custom_') that may not be in firms list
-    state.suggestedStops.forEach((s, i) => {
-      if (s.id && s.id.startsWith('custom_') && s.lat != null && s.lng != null) {
-        const color = stopColor(i);
-        const marker = L.circleMarker([s.lat, s.lng], {
-          radius: 12, fillColor: color, color: '#ffffff', weight: 3, opacity: 1, fillOpacity: 1
-        }).addTo(state.map);
-        marker.bindPopup(`<strong>${esc(s.name)}</strong> <span style="background:${color};color:#fff;border-radius:999px;padding:1px 6px;font-size:10px;font-weight:700;">${i + 1}</span><br>${esc(s.address || '')}`);
-        state.markers.push(marker);
-        bounds.push([s.lat, s.lng]);
-      }
+      bounds.push([pin.lat, pin.lng]);
     });
 
     if (state.currentLocation) bounds.push([state.currentLocation.lat, state.currentLocation.lng]);
