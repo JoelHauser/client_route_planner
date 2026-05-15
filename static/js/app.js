@@ -38,6 +38,49 @@
     btn.addEventListener('click', () => switchMobileTab(btn.dataset.section));
   });
 
+  // ── Stop persistence (localStorage, keyed by date) ──
+  function stopsStorageKey(date) {
+    return 'where2go_stops_' + (date || document.getElementById('planDate').value);
+  }
+
+  function saveStopsToStorage() {
+    const date = document.getElementById('planDate').value;
+    if (!date || !state.suggestedStops.length) return;
+    const payload = {
+      date,
+      suggestedStops: state.suggestedStops,
+      summaryText: state.summaryText,
+      startTime: document.getElementById('startTimeSelect').value,
+    };
+    localStorage.setItem(stopsStorageKey(date), JSON.stringify(payload));
+    // Remove saved stops for any other dates to keep storage clean
+    Object.keys(localStorage)
+      .filter(k => k.startsWith('where2go_stops_') && k !== stopsStorageKey(date))
+      .forEach(k => localStorage.removeItem(k));
+  }
+
+  function loadStopsFromStorage() {
+    const date = document.getElementById('planDate').value;
+    if (!date) return;
+    try {
+      const raw = localStorage.getItem(stopsStorageKey(date));
+      if (!raw) return;
+      const payload = JSON.parse(raw);
+      if (payload.date !== date || !payload.suggestedStops?.length) return;
+      state.suggestedStops = payload.suggestedStops;
+      state.suggestedStopIds = new Set(state.suggestedStops.map(x => x.id).filter(Boolean));
+      state.summaryText = payload.summaryText || '';
+      if (payload.startTime) {
+        const sel = document.getElementById('startTimeSelect');
+        if (sel) sel.value = payload.startTime;
+      }
+      renderSuggestedStops();
+      renderSummaryPane();
+      renderMapPins(state.firms, false);
+      setStatus('Plan restored from earlier today.', true);
+    } catch (e) {}
+  }
+
   async function restoreCache() {
     try {
       const res = await fetch('/api/firms-cache');
@@ -50,6 +93,7 @@
         badge.innerHTML = '<span class="dot"></span> ' + state.firms.length + ' firms';
         renderMapPins(state.firms);
         setStatus('Airtable data restored.', true);
+        loadStopsFromStorage();
       }
     } catch (err) {}
   }
@@ -170,6 +214,7 @@
     renderSuggestedStops();
     renderMapPins(state.firms, true);  // preserve zoom when removing a stop
     rebuildSummaryText();
+    saveStopsToStorage();
   }
 
   function showAddFirmPanel(afterIdx) {
@@ -238,6 +283,7 @@
     renderSuggestedStops();
     renderMapPins(state.firms, true);  // preserve zoom when adding a stop
     rebuildSummaryText();
+    saveStopsToStorage();
   }
 
   async function addCustomStop() {
@@ -573,6 +619,7 @@
       badge.innerHTML = badgeText;
       renderMapPins(state.firms);
       setStatus('Airtable synced.', true);
+      loadStopsFromStorage();
     } catch (err) {
       setStatus(err.message || 'Sync failed.', false);
     }
@@ -710,6 +757,7 @@
       if (state.currentLocation) planBounds.push([state.currentLocation.lat, state.currentLocation.lng]);
       if (planBounds.length) state.map.fitBounds(planBounds, { padding: [60, 60] });
       setStatus('Plan ready.', true);
+      saveStopsToStorage();
       if (isMobile()) switchMobileTab('stops');
     } catch (err) {
       setStatus(err.message || 'Could not build plan.', false);
